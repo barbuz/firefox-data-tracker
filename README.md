@@ -82,11 +82,30 @@ test/                  unit tests for lib/
 
 ## Packaging
 
+An `.xpi` is just a zip of `src/` with `manifest.json` at the top level:
+
 ```sh
-cd src && zip -r ../data-usage-tracker.zip . -x '.*'
+cd src && zip -r ../data-usage-tracker.xpi . -x '.*'
 ```
 
-Sign with `web-ext sign` (AMO) for a permanent install.
+## Installing on Firefox for Android
+
+The extension targets desktop Firefox, but the APIs it uses (`webRequest`
+`onCompleted` with `responseHeaders`, `background.scripts`, `options_ui`,
+`storage`) are all supported on Firefox for Android, so it runs there too.
+
+Two ways to install:
+
+- **Temporary (any channel, including release), over USB.** Enable USB
+  debugging on the phone and run
+  `web-ext run -t firefox-android --adb-device <id> --firefox-apk org.mozilla.firefox`.
+  The add-on unloads when Firefox closes.
+- **Permanent (requires a signed `.xpi`).** Release Firefox for Android only
+  installs signed add-ons. Sign the `.xpi` on addons.mozilla.org (the *unlisted*
+  channel is free and signed automatically), then on the phone: **Settings →
+  About Firefox → tap the Firefox logo five times → Settings → Install Extension
+  from File** and pick the downloaded `.xpi`. The dashboard is available under
+  the extension's entry in the Android add-ons list.
 
 ## License
 
