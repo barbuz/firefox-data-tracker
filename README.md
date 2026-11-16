@@ -26,6 +26,24 @@ dashboard from the toolbar popup (or `about:addons` → the extension → Option
 > Temporary add-ons are removed when Firefox closes. For a permanent install,
 > package and sign the extension (see below).
 
+## Install (permanent)
+
+Download the `.xpi` from the [latest release][releases], then:
+
+- **Firefox for Android (release/beta):** **Settings → About Firefox → tap the
+  Firefox logo five times → Settings → Install Extension from File**, and pick
+  the downloaded `.xpi`.
+- **Desktop Firefox (release):** open `about:addons` → the gear icon → **Install
+  Add-on from File…** and pick the `.xpi`.
+
+Firefox release channels only install **signed** add-ons. The release asset is
+signed through addons.mozilla.org's unlisted channel; a locally built `.xpi`
+(see [Packaging](#packaging)) is unsigned and loads only as a temporary add-on
+or in Firefox Developer Edition / Nightly with `xpinstall.signatures.required`
+set to `false` in `about:config`.
+
+[releases]: https://github.com/barbuz/firefox-data-tracker/releases/latest
+
 ## Use
 
 - **Toolbar popup** — today's total and top sites at a glance.
@@ -98,7 +116,15 @@ test/                  unit tests for lib/
 
 ## Packaging
 
-An `.xpi` is just a zip of `src/` with `manifest.json` at the top level:
+An `.xpi` is just a zip of `src/` with `manifest.json` at the top level. Build
+one with:
+
+```sh
+npm run build      # writes web-ext-artifacts/data_usage_tracker-<version>.zip
+```
+
+`web-ext build` names the artifact `.zip`; rename it to `.xpi` for installation
+(the format is identical). Or zip it by hand:
 
 ```sh
 cd src && zip -r ../data-usage-tracker.xpi . -x '.*'
