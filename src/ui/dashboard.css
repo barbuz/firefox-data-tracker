@@ -1,0 +1,78 @@
+:root {
+  --bg: #1c1b22;
+  --panel: #2b2a33;
+  --panel-2: #3a3944;
+  --text: #fbfbfe;
+  --muted: #cfcfd8;
+  --accent: #00ddb3;
+  --border: #52525e;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font: 14px/1.45 -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.bar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+h1 { font-size: 18px; margin: 0; }
+
+.totals { color: var(--muted); font-variant-numeric: tabular-nums; }
+.totals strong { color: var(--accent); }
+
+.controls, .settings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings { background: rgba(255, 255, 255, 0.02); }
+
+label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
+label input, label select { font: inherit; color: var(--text); background: var(--panel-2);
+  border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; }
+.settings label { flex-direction: row; align-items: center; gap: 8px; }
+
+button {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+button[data-preset] { padding: 6px 10px; }
+
+.presets { display: flex; gap: 6px; }
+
+main { padding: 16px 20px 40px; }
+
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; }
+.num { text-align: right; }
+td.num, th.num { white-space: nowrap; }
+
+tr:hover td { background: rgba(255, 255, 255, 0.04); }
+
+.bar-col { width: 120px; }
+.meter { height: 8px; border-radius: 4px; background: var(--accent); min-width: 2px; }
+
+.empty { color: var(--muted); text-align: center; padding: 40px 0; }

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Data Usage Tracker</title>
+  <link rel="stylesheet" href="dashboard.css" />
+</head>
+<body>
+  <header class="bar">
+    <h1>Data Usage Tracker</h1>
+    <div class="totals" id="totals" aria-live="polite"></div>
+  </header>
+
+  <section class="controls" aria-label="Filters">
+    <label>From <input type="date" id="from" /></label>
+    <label>To <input type="date" id="to" /></label>
+    <div class="presets">
+      <button data-preset="today">Today</button>
+      <button data-preset="7">7 days</button>
+      <button data-preset="30">30 days</button>
+      <button data-preset="all">All</button>
+    </div>
+    <label>Group by
+      <select id="groupBy">
+        <option value="site">Site</option>
+        <option value="host">Serving host</option>
+      </select>
+    </label>
+    <label>Site filter <input type="search" id="siteFilter" placeholder="substring" /></label>
+    <label>Top <input type="number" id="topN" min="0" value="0" title="0 = show all" /></label>
+    <button id="export">Export CSV</button>
+    <button id="refresh">Refresh</button>
+  </section>
+
+  <section class="settings" aria-label="Settings">
+    <label>Retention (days) <input type="number" id="retention" min="0" /></label>
+    <label><input type="checkbox" id="excludeCached" /> Exclude cached responses from bytes</label>
+    <button id="clear">Clear all data</button>
+  </section>
+
+  <main>
+    <table id="results">
+      <thead>
+        <tr>
+          <th class="num">#</th>
+          <th id="colKey">Site</th>
+          <th class="num">Data</th>
+          <th class="bar-col"></th>
+          <th class="num">Requests</th>
+          <th class="num">Unknown size</th>
+          <th class="num">Cached</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <p class="empty" id="empty" hidden>No data for the selected filters.</p>
+  </main>
+
+  <script type="module" src="dashboard.js"></script>
+</body>
+</html>

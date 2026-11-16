@@ -1,0 +1,10 @@
+{
+  "name": "data-usage-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Firefox extension that logs per-site download usage locally.",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  }
+}

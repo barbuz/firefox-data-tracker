@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "Data Usage Tracker",
+  "version": "1.0.0",
+  "description": "Locally logs how much data each site downloads, with a filterable dashboard.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "data-usage-tracker@example.local",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    },
+    "gecko_android": {
+      "strict_min_version": "142.0"
+    }
+  },
+  "permissions": [
+    "webRequest",
+    "storage",
+    "unlimitedStorage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "scripts": ["background.js"],
+    "type": "module"
+  },
+  "options_ui": {
+    "page": "ui/dashboard.html",
+    "open_in_tab": true
+  },
+  "action": {
+    "default_title": "Data Usage Tracker",
+    "default_popup": "ui/popup.html"
+  }
+}
