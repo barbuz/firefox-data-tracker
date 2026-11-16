@@ -26,6 +26,10 @@ const PRECISE_PERMISSIONS = ["webRequestBlocking", "webRequestFilterResponse"];
 // listener, so the listener is added and removed with the setting rather than
 // always being present.
 let preciseListener = null;
+// syncPreciseMode has await points before it checks preciseListener, so two
+// concurrent calls (bootstrap + a settings change) could both add the listener,
+// which throws. Serialise the calls instead.
+let syncChain = Promise.resolve();
 
 async function bootstrap() {
   await collector.init();
@@ -96,24 +100,34 @@ function onBeforeRequest(details) {
   return undefined;
 }
 
-async function syncPreciseMode() {
-  const settings = await store.getSettings();
-  const wanted = !!settings.preciseMode;
-  const allowed = wanted && (await hasPrecisePermissions());
+function syncPreciseMode() {
+  syncChain = syncChain.then(applyPreciseMode, applyPreciseMode);
+  return syncChain;
+}
 
-  if (allowed && !preciseListener) {
-    // Registered in onBeforeRequest so the filter exists before Firefox's
-    // optimized byte cache for scripts is consulted (see filterResponseData).
-    browser.webRequest.onBeforeRequest.addListener(
-      onBeforeRequest,
-      { urls: ["<all_urls>"] },
-      ["blocking"]
-    );
-    preciseListener = onBeforeRequest;
-  } else if (!allowed && preciseListener) {
-    browser.webRequest.onBeforeRequest.removeListener(preciseListener);
-    preciseListener = null;
-    tracker.stopAll();
+async function applyPreciseMode() {
+  try {
+    const settings = await store.getSettings();
+    const wanted = !!settings.preciseMode;
+    const allowed = wanted && (await hasPrecisePermissions());
+
+    if (allowed && !preciseListener) {
+      // Registered in onBeforeRequest so the filter exists before Firefox's
+      // optimized byte cache for scripts is consulted (see filterResponseData).
+      browser.webRequest.onBeforeRequest.addListener(
+        onBeforeRequest,
+        { urls: ["<all_urls>"] },
+        ["blocking"]
+      );
+      preciseListener = onBeforeRequest;
+    } else if (!allowed && preciseListener) {
+      browser.webRequest.onBeforeRequest.removeListener(preciseListener);
+      preciseListener = null;
+      tracker.stopAll();
+    }
+  } catch (err) {
+    // Never reject: the sync chain must stay usable for the next settings change.
+    console.error("Could not update precise mode", err);
   }
   return !!preciseListener;
 }
