@@ -13,6 +13,15 @@ async function render() {
 
   document.getElementById("total").textContent = formatBytes(totals.bytes);
 
+  // Decoded totals only mean anything once precise mode has measured something.
+  const decodedEl = document.getElementById("decoded");
+  if (totals.decoded > 0) {
+    decodedEl.hidden = false;
+    decodedEl.textContent = `${formatBytes(totals.decoded)} decoded (precise mode)`;
+  } else {
+    decodedEl.hidden = true;
+  }
+
   const list = document.getElementById("top");
   list.textContent = "";
   if (rows.length === 0) {

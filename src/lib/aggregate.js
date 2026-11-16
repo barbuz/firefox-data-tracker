@@ -23,28 +23,64 @@ export function contentLengthFromHeaders(headers) {
 }
 
 function emptyCounters() {
-  return { b: 0, r: 0, u: 0, c: 0 };
+  // b: wire bytes (Content-Length), r: requests, u: unknown-size responses,
+  // c: disk-cache hits, d: decoded bytes measured by a stream filter,
+  // dm: responses that contributed a decoded measurement.
+  return { b: 0, r: 0, u: 0, c: 0, d: 0, dm: 0 };
 }
 
 /**
- * Fold a single completed request into a day bucket, in place.
+ * Fold a single request (or a stream-filter measurement) into a day bucket.
  *
- * @param {object} day        day bucket: { [site]: {b,r,u,c,h:{[host]:{b,r,u,c}}} }
+ * Decoded bytes are folded in *before* the early returns for cached and
+ * unknown-size responses: a chunked/streamed response is exactly the case that
+ * has no Content-Length, so returning early first would discard the very
+ * measurement that makes it visible.
+ *
+ * @param {object} day        day bucket: { [site]: {b,r,u,c,d,dm,h:{...}} }
  * @param {object} entry
  * @param {string} entry.site   registrable domain of the owning document
  * @param {string} entry.host   serving host
- * @param {number|null} entry.bytes  body size, or null when unknown
+ * @param {number|null} entry.bytes  wire body size, or null when unknown
  * @param {boolean} entry.fromCache  whether the response came from disk cache
+ * @param {number|null} [entry.decoded]  decoded bytes measured for this response
+ * @param {boolean} [entry.measured]     true on the first measurement of a response
+ * @param {boolean} [entry.countRequest] false when the caller already counted the
+ *        request (a stream measurement is a second event for the same request)
+ * @param {boolean} [entry.wireAccounting] false to fold only the decoded bytes,
+ *        leaving the wire counters (b/r/u/c) untouched
  */
-export function accumulate(day, { site, host, bytes, fromCache }) {
+export function accumulate(day, {
+  site,
+  host,
+  bytes,
+  fromCache,
+  decoded = null,
+  measured = false,
+  countRequest = true,
+  wireAccounting = true,
+}) {
   if (!site) return day;
   let s = day[site];
   if (!s) s = day[site] = { ...emptyCounters(), h: {} };
   let h = host ? s.h[host] : null;
   if (host && !h) h = s.h[host] = emptyCounters();
 
-  s.r += 1;
-  if (h) h.r += 1;
+  if (countRequest) {
+    s.r += 1;
+    if (h) h.r += 1;
+  }
+
+  if (measured) {
+    s.dm += 1;
+    if (h) h.dm += 1;
+  }
+  if (decoded != null && decoded > 0) {
+    s.d += decoded;
+    if (h) h.d += decoded;
+  }
+
+  if (!wireAccounting) return day;
 
   if (fromCache) {
     // Served from disk cache: no bytes crossed the network.
@@ -74,11 +110,13 @@ export function mergeDay(target, source) {
   for (const [site, s] of Object.entries(source)) {
     let t = out[site];
     if (!t) t = out[site] = { ...emptyCounters(), h: {} };
-    t.b += s.b; t.r += s.r; t.u += s.u; t.c += s.c;
+    t.b += s.b || 0; t.r += s.r || 0; t.u += s.u || 0; t.c += s.c || 0;
+    t.d += s.d || 0; t.dm += s.dm || 0;
     for (const [host, h] of Object.entries(s.h || {})) {
       let th = t.h[host];
       if (!th) th = t.h[host] = emptyCounters();
-      th.b += h.b; th.r += h.r; th.u += h.u; th.c += h.c;
+      th.b += h.b || 0; th.r += h.r || 0; th.u += h.u || 0; th.c += h.c || 0;
+      th.d += h.d || 0; th.dm += h.dm || 0;
     }
   }
   return out;
@@ -88,8 +126,8 @@ function structuredCloneDay(day) {
   const out = {};
   for (const [site, s] of Object.entries(day)) {
     const h = {};
-    for (const [host, c] of Object.entries(s.h || {})) h[host] = { ...c };
-    out[site] = { b: s.b, r: s.r, u: s.u, c: s.c, h };
+    for (const [host, c] of Object.entries(s.h || {})) h[host] = { ...emptyCounters(), ...c };
+    out[site] = { b: s.b, r: s.r, u: s.u, c: s.c, d: s.d || 0, dm: s.dm || 0, h };
   }
   return out;
 }
@@ -132,11 +170,13 @@ export function aggregate(days, opts = {}) {
 
 function addRow(map, key, c) {
   let row = map.get(key);
-  if (!row) row = { bytes: 0, requests: 0, unknown: 0, cached: 0 };
+  if (!row) row = { bytes: 0, requests: 0, unknown: 0, cached: 0, decoded: 0, measured: 0 };
   row.bytes += c.b;
   row.requests += c.r;
   row.unknown += c.u;
   row.cached += c.c;
+  row.decoded += c.d || 0;
+  row.measured += c.dm || 0;
   map.set(key, row);
 }
 
@@ -148,9 +188,23 @@ export function sumRows(rows) {
       requests: acc.requests + r.requests,
       unknown: acc.unknown + r.unknown,
       cached: acc.cached + r.cached,
+      decoded: acc.decoded + (r.decoded || 0),
+      measured: acc.measured + (r.measured || 0),
     }),
-    { bytes: 0, requests: 0, unknown: 0, cached: 0 }
+    { bytes: 0, requests: 0, unknown: 0, cached: 0, decoded: 0, measured: 0 }
   );
+}
+
+/**
+ * How much of the measured traffic has a known size. `unknown` responses have no
+ * Content-Length (chunked, streamed, some 304s), so their bytes are missing from
+ * the totals. Returns a fraction in [0,1]; 1 when there is nothing to report.
+ */
+export function coverage(totals) {
+  const known = totals.requests - totals.unknown - totals.cached;
+  const denom = known + totals.unknown;
+  if (denom <= 0) return 1;
+  return known / denom;
 }
 
 /** Inclusive list of date keys between two "YYYY-MM-DD" strings. */
@@ -176,9 +230,17 @@ export function formatBytes(n) {
 
 /** Build a CSV document from aggregate() rows. */
 export function rowsToCsv(rows) {
-  const header = "key,bytes,requests,unknown_size,cached";
+  const header = "key,bytes,decoded_bytes,requests,unknown_size,cached,decoded_measured";
   const lines = rows.map((r) =>
-    [csvCell(r.key), r.bytes, r.requests, r.unknown, r.cached].join(",")
+    [
+      csvCell(r.key),
+      r.bytes,
+      r.decoded || 0,
+      r.requests,
+      r.unknown,
+      r.cached,
+      r.measured || 0,
+    ].join(",")
   );
   return [header, ...lines].join("\n");
 }

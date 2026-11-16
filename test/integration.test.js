@@ -102,3 +102,59 @@ test("flushes are idempotent across a simulated restart", async () => {
   assert.equal(day["news.example"].b, 3000);
   assert.equal(day["news.example"].r, 2);
 });
+
+test("precise mode makes a streamed SSE response visible end to end", async () => {
+  const store = new Store(new FakeArea());
+  const collector = new Collector({ store, getSettings: () => store.getSettings() });
+  await collector.init();
+
+  // An SSE endpoint: chunked, so no Content-Length, and onCompleted sees it as
+  // an unknown-size response. Without precise mode its bytes are invisible.
+  const sse = {
+    type: "xmlhttprequest",
+    timeStamp: DAY,
+    fromCache: false,
+    documentUrl: "https://www.news.example/",
+    url: "https://stream.news.example/live",
+    responseHeaders: [],
+  };
+  collector.handleCompleted(sse);
+  await collector.flush();
+
+  let days = await store.getDays(dateRange("2026-03-10", "2026-03-10"));
+  let row = aggregate(days, { groupBy: "site" }).find((r) => r.key === "news.example");
+  assert.equal(row.bytes, 0, "no wire bytes are known");
+  assert.equal(row.unknown, 1);
+  assert.equal(row.decoded, 0, "nothing measured yet");
+
+  // Precise mode attaches a filter; chunks arrive over the life of the stream
+  // and the tracker reports the total when the stream ends.
+  const { StreamTracker } = await import("../src/lib/streams.js");
+  let filter;
+  const tracker = new StreamTracker({
+    createFilter: () => (filter = {
+      ondata: null, onstop: null, onerror: null,
+      write() {}, close() {}, disconnect() {},
+    }),
+    onMeasure: (meta, bytes) => collector.handleMeasured(meta, bytes),
+  });
+  tracker.attach("req-1", { site: "news.example", host: "stream.news.example", timeStamp: DAY });
+
+  filter.ondata({ data: new Uint8Array(1200) });
+  filter.ondata({ data: new Uint8Array(800) });
+  filter.onstop();
+  await collector.flush();
+
+  days = await store.getDays(dateRange("2026-03-10", "2026-03-10"));
+  row = aggregate(days, { groupBy: "site" }).find((r) => r.key === "news.example");
+  assert.equal(row.decoded, 2000, "decoded bytes are now recorded");
+  assert.equal(row.measured, 1, "one measured response");
+  assert.equal(row.requests, 1, "the request is still counted only once");
+  assert.equal(row.unknown, 1, "and still unknown size on the wire");
+
+  // Both numbers are available at once, which is the point of logging both.
+  const totals = sumRows(aggregate(days, { groupBy: "site" }));
+  assert.equal(totals.decoded, 2000);
+  assert.equal(totals.bytes, 0);
+});
+

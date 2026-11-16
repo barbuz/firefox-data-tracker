@@ -21,6 +21,10 @@
     "unlimitedStorage",
     "alarms"
   ],
+  "optional_permissions": [
+    "webRequestBlocking",
+    "webRequestFilterResponse"
+  ],
   "host_permissions": [
     "<all_urls>"
   ],

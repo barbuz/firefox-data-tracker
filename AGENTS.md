@@ -39,9 +39,20 @@ Node 18+ is needed for tests only.
   `onCompleted` + the `"responseHeaders"` extraInfoSpec.
 - `onCompleted` is **informational only** — it does not block, so it is cheap.
   Do not add `"blocking"` here.
-- Exact counting would need `filterResponseData`, which requires
-  `webRequestBlocking` + (MV3, FF110+) `webRequestFilterResponse` and intercepts
-  every response body. Off by default; a `preciseMode` setting is reserved.
+- `filterResponseData` requires `webRequestBlocking` + (MV3, FF110+)
+  `webRequestFilterResponse` and intercepts every response body. Both are
+  declared as `optional_permissions` and requested from the dashboard toggle.
+  Firefox grants them **silently** (no prompt) but still requires a user gesture.
+- **`StreamFilter.ondata` delivers decoded (decompressed) bytes**, not wire
+  bytes: Gecko's `StreamFilterParent::Init` calls `SetNewListener` with
+  `aMustApplyContentConversion = true`. So decoded sizes are a different unit
+  from `Content-Length` and must never be added to the same column. The
+  extension stores both (`d` alongside `b`) and labels them separately.
+- A `StreamFilter` must always be `close()`d or `disconnect()`d: leaving one open
+  holds the response open indefinitely, i.e. a hung page load. `ondata` chunks
+  must be written straight back or the body is truncated. Use `disconnect()` (not
+  `close()`) when abandoning a filter mid-stream, so the browser can finish
+  delivering the response. All of this lives in `lib/streams.js`.
 - `details.documentUrl` is **undefined for top-level documents**; fall back to
   the request URL there.
 - Cached responses (`details.fromCache`) transferred no network bytes; excluded
@@ -56,10 +67,14 @@ Node 18+ is needed for tests only.
 ## Storage model
 
 One `storage.local` key per day: `day:YYYY-MM-DD`, plus a `settings` key. A day
-bucket is `{ [site]: { b, r, u, c, h: { [host]: {b,r,u,c} } } }` where `b`=bytes,
-`r`=requests, `u`=unknown size, `c`=cached. Aggregation (not per-request rows)
+bucket is `{ [site]: { b, r, u, c, d, dm, h: { [host]: {b,r,u,c,d,dm} } } }` where
+`b`=wire bytes, `r`=requests, `u`=unknown size, `c`=cached, `d`=decoded bytes
+(precise mode), `dm`=measured responses. Aggregation (not per-request rows)
 bounds growth by days × sites × hosts. Writes are debounced (3 s) in `Collector`
 and also flushed on `runtime.onSuspend` and a periodic alarm.
+
+`d`/`dm` default to 0 in `emptyCounters()`, so day buckets written by older
+versions read back without migration.
 
 When changing the storage shape, update `mergeDay`/`accumulate` in
 `lib/aggregate.js` and the tests together.

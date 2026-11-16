@@ -37,7 +37,7 @@ dashboard from the toolbar popup (or `about:addons` → the extension → Option
   - **Top N** — limit the table without changing the totals.
   - **Export CSV** — exports all rows matching the current filters.
   - **Settings** — retention window (days, 0 = keep forever), whether to exclude
-    cached responses from byte totals, and **Clear all data**.
+    cached responses from byte totals, precise mode, and **Clear all data**.
 
 ## What is measured
 
@@ -47,6 +47,22 @@ headers and attributes it to the page's registrable domain. Details and caveats
 [DESIGN.md](DESIGN.md). Responses with no `Content-Length` are counted in a
 separate **Unknown size** column rather than being treated as zero, so coverage
 gaps are visible.
+
+### Precise mode
+
+An optional **precise mode** toggle measures the bytes each response actually
+delivers, using `filterResponseData` and summing `ondata` chunks. It records
+those decoded bytes *alongside* the wire bytes rather than replacing them, so the
+dashboard shows both columns side by side. This is what makes streamed responses
+with no `Content-Length` — server-sent events, `fetch()` streams — visible at all.
+
+Two things to know before enabling it:
+
+- It asks for two extra permissions and makes the extension block on every
+  response, so it is heavier than the default observational path.
+- Decoded sizes are measured **after** decompression, so they are larger than the
+  compressed sizes reported in the wire column. They answer a different question
+  ("how much did the page have to process") and are not a data-cap figure.
 
 ## Development
 

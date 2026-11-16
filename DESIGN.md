@@ -21,15 +21,56 @@ are two ways to get sizes, with different trade-offs:
 | Approach | Accuracy | Cost | Permissions |
 | --- | --- | --- | --- |
 | `onCompleted` + `responseHeaders` → read `Content-Length` | Good for most responses; **missing** when the server uses `Transfer-Encoding: chunked` and sends no `Content-Length` | Observational, does not block page loads | `webRequest` + host permissions |
-| `filterResponseData` → sum `ondata` byte lengths | Exact (counts the bytes actually received, decoded) | Intercepts every response body; runs code per chunk | `webRequest`, `webRequestBlocking`, `webRequestFilterResponse` + host permissions |
+| `filterResponseData` → sum `ondata` byte lengths | Counts the bytes each response actually delivers, **after** content conversion (decompressed) | Intercepts every response body; runs code per chunk | `webRequest`, `webRequestBlocking`, `webRequestFilterResponse` + host permissions |
 
 We default to the **header approach** because it is genuinely lightweight: the
 listener is *informational only* (see MDN: "This event is informational only"),
 so it never adds latency to a page load. We record a count of responses with
 **unknown size** so the coverage gap is visible instead of silently wrong.
 
-A `preciseMode` setting can later switch to `filterResponseData` for exact
-counting at the cost of throughput; it is intentionally off by default.
+### Precise mode, and why both numbers are stored
+
+The two approaches measure **different quantities**: `Content-Length` is the
+compressed size on the wire, while `filterResponseData` sees the body *after*
+decompression (`StreamFilterParent::Init` calls `SetNewListener` with
+`aMustApplyContentConversion = true`). Decoded sizes are typically several times
+larger than wire sizes for text, so the two are not interchangeable and mixing
+them in one column would be misleading.
+
+Rather than replace one with the other, the optional **precise mode** records
+both at once:
+
+- `b` — wire bytes, from `Content-Length`, as before.
+- `d` — decoded bytes, summed from `ondata` chunks.
+- `dm` — how many responses contributed a `d` measurement.
+
+The dashboard shows the decoded column alongside the wire column only when
+precise mode has recorded something, so the two units are never conflated.
+
+Precise mode is off by default for two reasons. It requires the optional
+`webRequestBlocking` + `webRequestFilterResponse` permissions (requested from
+the dashboard toggle, since Firefox needs a user gesture), and it moves the
+extension into the *blocking* path of every response, which the default
+observational design deliberately avoids.
+
+### What precise mode buys: streamed and chunked responses
+
+A chunked response has no `Content-Length`, so the header approach records it as
+`unknown` and its bytes are missing from the totals. `ondata` fires per chunk as
+bytes arrive and `onstop` fires at the end, so precise mode can measure
+responses that the header approach cannot see at all — server-sent events
+(SSE), `fetch()` streams, and other long-lived HTTP bodies.
+
+The stream filter must obey two rules, both enforced in `src/lib/streams.js`:
+
+1. Every chunk handed to `ondata` is written straight back, or the response is
+   truncated.
+2. Every filter is always closed or disconnected. A filter left open holds the
+   response open indefinitely, so a leaked filter is a hung page load. Open
+   filters are also capped, and all are released on event-page suspend.
+
+WebSocket payloads and DNS/TLS bytes remain out of scope: `webRequest` sees only
+the WebSocket handshake, and no WebExtension API exposes handshake byte counts.
 
 ### What `Content-Length` actually means
 
@@ -71,12 +112,14 @@ Data is aggregated, not stored per request. Each calendar day is one
 ```jsonc
 {
   "example.com": {                 // site (registrable domain)
-    "b": 10485760,                 // bytes with known size
+    "b": 10485760,                 // wire bytes with known size (Content-Length)
     "r": 412,                      // completed requests
     "u": 7,                        // requests with unknown size (no Content-Length)
     "c": 33,                       // requests served from cache (excluded from b)
+    "d": 0,                        // decoded bytes (precise mode only)
+    "dm": 0,                       // responses that contributed a d measurement
     "h": {                         // per serving-host breakdown
-      "cdn.example.com": { "b": 9437184, "r": 300, "u": 2, "c": 10 }
+      "cdn.example.com": { "b": 9437184, "r": 300, "u": 2, "c": 10, "d": 0, "dm": 0 }
     }
   }
 }
@@ -117,6 +160,12 @@ startup.
 | `storage` | Persist the local log |
 | `unlimitedStorage` | Avoid the storage quota for long histories (still pruned by retention) |
 | `alarms` | Periodic flush + retention pruning |
+| `webRequestBlocking` (optional) | Precise mode only: register a blocking listener and call `filterResponseData` |
+| `webRequestFilterResponse` (optional) | Precise mode only: required by MV3 to filter response bodies |
+
+The two optional permissions are requested from the dashboard toggle when precise
+mode is first enabled, and revoked state is handled by falling back to the
+default observational listener.
 
 No `tabs` permission is needed: `webRequest` already provides `tabId`, and the
 dashboard reads aggregate data from `storage` directly.
@@ -136,10 +185,13 @@ dashboard reads aggregate data from `storage` directly.
 - Date range (from/to) and quick presets (today / 7d / 30d).
 - Group-by toggle: **site** or **serving host**.
 - Site filter (substring match + include/exclude the top N).
-- Sortable table: bytes (with bar), requests, unknown-size count, cached count.
-- Totals, and a **CSV export** of the current filtered view.
+- Sortable table: wire bytes (with bar), decoded bytes (precise mode only),
+  requests, unknown-size count, cached count.
+- Totals, including the share of responses that have a known wire size, and a
+  **CSV export** of the current filtered view.
 
-The popup shows today's total and the top few sites for at-a-glance use.
+The popup shows today's wire total, today's decoded total when precise mode has
+measured anything, and the top few sites.
 
 ## Known limitations
 
@@ -148,10 +200,19 @@ The popup shows today's total and the top few sites for at-a-glance use.
 - Registrable-domain reduction is approximate (embedded suffix list).
 - Nested-iframe attribution uses the iframe document, not the top page.
 - Data is per browser profile; it does not sync.
+- Precise mode's decoded byte counts include responses served from the disk
+  cache, because a stream filter measures the body that is delivered to the page
+  regardless of where it came from. The wire column still excludes cached
+  responses under `excludeCached`; the two columns are therefore not a strict
+  like-for-like comparison.
+- Precise mode cannot see WebSocket payloads (only the HTTP handshake passes
+  through `webRequest`), and it adds the extension to the blocking path of every
+  response while enabled.
 
 ## Possible extensions
 
-- Exact mode via `filterResponseData` (already scaffolded as a setting).
 - Full Public Suffix List for exact eTLD+1.
 - Weekly/monthly roll-ups stored alongside daily buckets.
 - Per-tab live meter using `webRequest` + `tabs` events.
+- Per-request-type breakdown (script vs image vs xmlhttprequest). `details.type`
+  is already available on every event; it is simply not stored yet.

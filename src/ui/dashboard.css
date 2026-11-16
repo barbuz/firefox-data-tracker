@@ -43,6 +43,8 @@ h1 { font-size: 18px; margin: 0; }
 
 .settings { background: rgba(255, 255, 255, 0.02); }
 
+.hint { flex-basis: 100%; color: var(--muted); font-size: 12px; max-width: 70ch; opacity: 0.85; }
+
 label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
 label input, label select { font: inherit; color: var(--text); background: var(--panel-2);
   border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; }

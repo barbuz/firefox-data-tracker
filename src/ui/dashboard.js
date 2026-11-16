@@ -9,10 +9,15 @@ import {
   formatBytes,
   sumRows,
   rowsToCsv,
+  coverage,
 } from "../lib/aggregate.js";
 
 const store = new Store(browser.storage.local);
 const $ = (id) => document.getElementById(id);
+
+// Optional permissions precise mode needs. Requested from the toggle's click
+// handler, because Firefox requires a user gesture for permissions.request().
+const PRECISE_PERMISSIONS = { permissions: ["webRequestBlocking", "webRequestFilterResponse"] };
 
 const state = {
   from: null,
@@ -21,7 +26,9 @@ const state = {
   siteFilter: "",
   topN: 0,
   rows: [],
-  totals: { bytes: 0, requests: 0, unknown: 0, cached: 0 },
+  all: [],
+  preciseMode: false,
+  totals: { bytes: 0, requests: 0, unknown: 0, cached: 0, decoded: 0, measured: 0 },
 };
 
 async function init() {
@@ -34,6 +41,8 @@ async function init() {
   const settings = await store.getSettings();
   $("retention").value = settings.retentionDays;
   $("excludeCached").checked = settings.excludeCached;
+  state.preciseMode = !!settings.preciseMode;
+  $("preciseMode").checked = state.preciseMode;
 
   bindControls();
   await load();
@@ -58,6 +67,32 @@ function bindControls() {
     store.setSettings({ retentionDays: Number(e.target.value) || 0 }));
   $("excludeCached").addEventListener("change", (e) =>
     store.setSettings({ excludeCached: e.target.checked }));
+
+  $("preciseMode").addEventListener("change", togglePreciseMode);
+}
+
+/**
+ * Turn precise mode on or off. Enabling needs the optional blocking permissions,
+ * which Firefox only grants from a user gesture such as this click. If the user
+ * declines, the checkbox is reverted rather than left lying about the state.
+ */
+async function togglePreciseMode(e) {
+  const box = e.target;
+  if (box.checked) {
+    let granted = false;
+    try {
+      granted = await browser.permissions.request(PRECISE_PERMISSIONS);
+    } catch {
+      granted = false;
+    }
+    if (!granted) {
+      box.checked = false;
+      return;
+    }
+  }
+  await store.setSettings({ preciseMode: box.checked });
+  state.preciseMode = box.checked;
+  await load();
 }
 
 async function applyPreset(preset) {
@@ -101,6 +136,11 @@ function render() {
   const totals = state.totals;
   const max = state.rows.length ? state.rows[0].bytes : 0;
 
+  // The decoded column only carries information when precise mode has actually
+  // recorded measurements, so it is hidden otherwise rather than shown as zeros.
+  const showDecoded = state.preciseMode || totals.decoded > 0;
+  $("colDecoded").hidden = !showDecoded;
+
   $("colKey").textContent = state.groupBy === "site" ? "Site" : "Serving host";
 
   const totalsEl = $("totals");
@@ -108,11 +148,19 @@ function render() {
   const strong = document.createElement("strong");
   strong.textContent = formatBytes(totals.bytes);
   totalsEl.appendChild(strong);
-  totalsEl.appendChild(document.createTextNode(
-    ` · ${totals.requests.toLocaleString()} requests` +
+  let summary =
+    ` wire · ${totals.requests.toLocaleString()} requests` +
     (totals.unknown ? ` · ${totals.unknown.toLocaleString()} unknown size` : "") +
-    (totals.cached ? ` · ${totals.cached.toLocaleString()} cached` : "")
-  ));
+    (totals.cached ? ` · ${totals.cached.toLocaleString()} cached` : "");
+  if (showDecoded) {
+    summary += ` · ${formatBytes(totals.decoded)} decoded` +
+      (totals.measured ? ` across ${totals.measured.toLocaleString()} responses` : "");
+  }
+  const cov = coverage(totals);
+  if (totals.unknown > 0 && cov < 1) {
+    summary += ` · ${Math.round(cov * 100)}% of responses have a known wire size`;
+  }
+  totalsEl.appendChild(document.createTextNode(summary));
 
   $("empty").hidden = state.rows.length > 0;
 
@@ -121,6 +169,9 @@ function render() {
     tr.appendChild(cell(String(i + 1), "num"));
     tr.appendChild(cell(row.key));
     tr.appendChild(cell(formatBytes(row.bytes), "num"));
+    if (showDecoded) {
+      tr.appendChild(cell(row.decoded ? formatBytes(row.decoded) : "—", "num"));
+    }
     tr.appendChild(meterCell(max ? row.bytes / max : 0));
     tr.appendChild(cell(row.requests.toLocaleString(), "num"));
     tr.appendChild(cell(row.unknown.toLocaleString(), "num"));

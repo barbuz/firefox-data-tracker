@@ -11,6 +11,7 @@ import {
   dateRange,
   formatBytes,
   rowsToCsv,
+  coverage,
 } from "../src/lib/aggregate.js";
 
 test("dateKey formats local calendar dates", () => {
@@ -93,10 +94,29 @@ test("aggregate supports substring filter and top-N", () => {
 
 test("sumRows totals the aggregate output", () => {
   const rows = [
-    { key: "a", bytes: 100, requests: 2, unknown: 0, cached: 1 },
-    { key: "b", bytes: 50, requests: 1, unknown: 1, cached: 0 },
+    { key: "a", bytes: 100, requests: 2, unknown: 0, cached: 1, decoded: 30, measured: 1 },
+    { key: "b", bytes: 50, requests: 1, unknown: 1, cached: 0, decoded: 0, measured: 0 },
   ];
-  assert.deepEqual(sumRows(rows), { bytes: 150, requests: 3, unknown: 1, cached: 1 });
+  assert.deepEqual(sumRows(rows), {
+    bytes: 150, requests: 3, unknown: 1, cached: 1, decoded: 30, measured: 1,
+  });
+});
+
+test("coverage reports the share of responses with a known wire size", () => {
+  // 3 of 4 countable responses have a size (cached hits are not counted).
+  assert.equal(
+    coverage({ bytes: 0, requests: 5, unknown: 1, cached: 1, decoded: 0, measured: 0 }),
+    0.75
+  );
+  // Nothing countable at all is treated as fully covered, not as 0.
+  assert.equal(
+    coverage({ bytes: 0, requests: 2, unknown: 0, cached: 2, decoded: 0, measured: 0 }),
+    1
+  );
+  assert.equal(
+    coverage({ bytes: 0, requests: 0, unknown: 0, cached: 0, decoded: 0, measured: 0 }),
+    1
+  );
 });
 
 test("dateRange is inclusive and ordered", () => {
@@ -116,8 +136,10 @@ test("formatBytes uses binary units", () => {
 });
 
 test("rowsToCsv escapes commas and quotes", () => {
-  const csv = rowsToCsv([{ key: 'a,"b"', bytes: 1, requests: 2, unknown: 3, cached: 4 }]);
+  const csv = rowsToCsv([
+    { key: 'a,"b"', bytes: 1, decoded: 9, requests: 2, unknown: 3, cached: 4, measured: 5 },
+  ]);
   const lines = csv.split("\n");
-  assert.equal(lines[0], "key,bytes,requests,unknown_size,cached");
-  assert.equal(lines[1], '"a,""b""",1,2,3,4');
+  assert.equal(lines[0], "key,bytes,decoded_bytes,requests,unknown_size,cached,decoded_measured");
+  assert.equal(lines[1], '"a,""b""",1,9,2,3,4,5');
 });

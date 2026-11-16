@@ -9,7 +9,10 @@ export const SETTINGS_KEY = "settings";
 export const DEFAULT_SETTINGS = {
   retentionDays: 90,   // 0 = keep forever
   excludeCached: true, // don't count disk-cache hits toward bytes
-  preciseMode: false,  // reserved: exact counting via filterResponseData
+  // Opt-in exact counting via filterResponseData. Requires the optional
+  // webRequestBlocking + webRequestFilterResponse permissions and makes the
+  // extension block on every response, so it stays off by default.
+  preciseMode: false,
 };
 
 export function dayKeyName(date) {

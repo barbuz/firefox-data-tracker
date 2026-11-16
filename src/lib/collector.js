@@ -55,6 +55,34 @@ export class Collector {
     this.settings = settings;
   }
 
+  /**
+   * Called by the StreamTracker once a filtered response has fully arrived.
+   *
+   * This is a *second* event for a request already seen on onCompleted, so it
+   * counts no request and touches no wire counter: it only records the decoded
+   * byte total. Those bytes are what make chunked/streamed responses (SSE,
+   * fetch streams) visible at all, since they carry no Content-Length.
+   *
+   * @param {{site:string, host:string, timeStamp:number}} meta
+   * @param {number} decodedBytes
+   */
+  handleMeasured(meta, decodedBytes) {
+    if (!meta?.site) return;
+    const date = dateKey(meta.timeStamp || Date.now());
+    const day = (this.buffer[date] ||= {});
+    accumulate(day, {
+      site: meta.site,
+      host: meta.host,
+      bytes: null,
+      fromCache: false,
+      decoded: decodedBytes,
+      measured: true,
+      countRequest: false,
+      wireAccounting: false,
+    });
+    this.requestFlush();
+  }
+
   requestFlush() {
     if (this.pendingFlush) return;
     this.pendingFlush = this.schedule(() => {

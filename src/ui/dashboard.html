@@ -36,6 +36,16 @@
   <section class="settings" aria-label="Settings">
     <label>Retention (days) <input type="number" id="retention" min="0" /></label>
     <label><input type="checkbox" id="excludeCached" /> Exclude cached responses from bytes</label>
+    <label>
+      <input type="checkbox" id="preciseMode" />
+      Precise mode (measure decoded bytes)
+    </label>
+    <span class="hint" id="preciseHint">
+      Counts the bytes each response actually delivers, including chunked and
+      streamed responses that have no Content-Length. Requires an extra
+      permission, and decoded sizes are larger than the compressed sizes on the
+      wire, so both are shown side by side.
+    </span>
     <button id="clear">Clear all data</button>
   </section>
 
@@ -45,7 +55,8 @@
         <tr>
           <th class="num">#</th>
           <th id="colKey">Site</th>
-          <th class="num">Data</th>
+          <th class="num">Wire</th>
+          <th class="num" id="colDecoded" hidden>Decoded</th>
           <th class="bar-col"></th>
           <th class="num">Requests</th>
           <th class="num">Unknown size</th>
