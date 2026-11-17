@@ -26,6 +26,7 @@ function fakeFilter() {
 function harness(over = {}) {
   const filters = [];
   const measures = [];
+  const skips = [];
   const tracker = new StreamTracker({
     createFilter: () => {
       const f = fakeFilter();
@@ -33,9 +34,10 @@ function harness(over = {}) {
       return f;
     },
     onMeasure: (meta, bytes) => measures.push({ meta, bytes }),
+    onSkip: (meta) => skips.push(meta),
     ...over,
   });
-  return { tracker, filters, measures };
+  return { tracker, filters, measures, skips };
 }
 
 const META = { site: "example.com", host: "cdn.example.com", timeStamp: 0 };
@@ -64,20 +66,37 @@ test("attach refuses duplicates and missing ids", () => {
 });
 
 test("a filter that throws is reported as not attached", () => {
+  const skips = [];
   const tracker = new StreamTracker({
     createFilter: () => { throw new Error("no such request"); },
     onMeasure: () => {},
+    onSkip: (meta) => skips.push(meta),
   });
   assert.equal(tracker.attach("r1", META), false);
   assert.equal(tracker.openCount, 0);
+  // A filter that could not be created is a measurement gap, not a silent miss.
+  assert.deepEqual(skips, [META]);
+});
+
+test("a falsy filter is also reported as a measurement gap", () => {
+  const skips = [];
+  const tracker = new StreamTracker({
+    createFilter: () => null,
+    onMeasure: () => {},
+    onSkip: (meta) => skips.push(meta),
+  });
+  assert.equal(tracker.attach("r1", META), false);
+  assert.deepEqual(skips, [META]);
 });
 
 test("a response that delivers no bytes is not recorded", () => {
-  const { tracker, filters, measures } = harness();
+  const { tracker, filters, measures, skips } = harness();
   tracker.attach("r1", META);
   filters[0].onstop(); // e.g. a cached or 204 response
   assert.deepEqual(measures, []);
   assert.equal(filters[0].closed, true, "stream is still released");
+  // An empty-but-successful response is not a failure, so it is not reported.
+  assert.deepEqual(skips, []);
 });
 
 test("onerror keeps the bytes measured before the failure", () => {
@@ -99,8 +118,32 @@ test("onstop only records once even if it fires twice", () => {
   assert.equal(measures.length, 1);
 });
 
+test("open filters are capped so a lost onstop cannot leak", () => {
+  const { tracker, filters, skips } = harness({ maxPending: 2 });
+  tracker.attach("r1", META);
+  tracker.attach("r2", META);
+  tracker.attach("r3", META); // evicts r1
+
+  assert.equal(tracker.openCount, 2);
+  assert.equal(filters[0].disconnected, true);
+  // r1 had delivered nothing, so its eviction is a measurement gap.
+  assert.deepEqual(skips, [META]);
+});
+
+test("an evicted filter that already delivered bytes is a measurement, not a gap", () => {
+  const { tracker, filters, measures, skips } = harness({ maxPending: 2 });
+  tracker.attach("r1", META);
+  tracker.attach("r2", META);
+  filters[0].ondata({ data: new Uint8Array(9) });
+  tracker.attach("r3", META); // evicts r1
+
+  assert.equal(measures.length, 1, "partial bytes are kept");
+  assert.equal(measures[0].bytes, 9);
+  assert.deepEqual(skips, [], "no gap reported for a partial measurement");
+});
+
 test("stopAll disconnects open filters and keeps partial totals", () => {
-  const { tracker, filters, measures } = harness();
+  const { tracker, filters, measures, skips } = harness();
   tracker.attach("r1", META);
   tracker.attach("r2", { ...META, site: "other.com" });
   filters[0].ondata({ data: new Uint8Array(7) });
@@ -114,16 +157,14 @@ test("stopAll disconnects open filters and keeps partial totals", () => {
   assert.equal(filters[0].disconnected, true);
   assert.equal(filters[0].closed, false);
   assert.equal(measures.find((m) => m.meta.site === "example.com").bytes, 7);
+  assert.deepEqual(skips, [], "both delivered bytes, so neither is a gap");
 });
 
-test("open filters are capped so a lost onstop cannot leak", () => {
-  const { tracker, filters } = harness({ maxPending: 2 });
+test("stopAll reports a gap for a filter that never delivered a byte", () => {
+  const { tracker, skips } = harness();
   tracker.attach("r1", META);
-  tracker.attach("r2", META);
-  tracker.attach("r3", META); // evicts r1
-
-  assert.equal(tracker.openCount, 2);
-  assert.equal(filters[0].disconnected, true);
+  tracker.stopAll();
+  assert.deepEqual(skips, [META]);
 });
 
 test("a measurement folds into the day bucket without double-counting", () => {

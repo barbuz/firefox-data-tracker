@@ -25,8 +25,12 @@ export function contentLengthFromHeaders(headers) {
 function emptyCounters() {
   // b: wire bytes (Content-Length), r: requests, u: unknown-size responses,
   // c: disk-cache hits, d: decoded bytes measured by a stream filter,
-  // dm: responses that contributed a decoded measurement.
-  return { b: 0, r: 0, u: 0, c: 0, d: 0, dm: 0 };
+  // dm: responses that contributed a decoded measurement,
+  // e: requests that failed (webRequest.onErrorOccurred) — they may have
+  //    transferred bytes we can never see, so they are a known blind spot,
+  // x: responses precise mode tried but failed to measure (filter could not be
+  //    attached, or was torn down before any bytes arrived).
+  return { b: 0, r: 0, u: 0, c: 0, d: 0, dm: 0, e: 0, x: 0 };
 }
 
 /**
@@ -45,6 +49,11 @@ function emptyCounters() {
  * @param {boolean} entry.fromCache  whether the response came from disk cache
  * @param {number|null} [entry.decoded]  decoded bytes measured for this response
  * @param {boolean} [entry.measured]     true on the first measurement of a response
+ * @param {boolean} [entry.unmeasured]   true when precise mode tried and failed to
+ *        measure this response (filter not attached, or torn down early)
+ * @param {boolean} [entry.errored]      true for a request that failed
+ *        (webRequest.onErrorOccurred); it has no known size and may have
+ *        transferred unseen bytes
  * @param {boolean} [entry.countRequest] false when the caller already counted the
  *        request (a stream measurement is a second event for the same request)
  * @param {boolean} [entry.wireAccounting] false to fold only the decoded bytes,
@@ -57,6 +66,8 @@ export function accumulate(day, {
   fromCache,
   decoded = null,
   measured = false,
+  unmeasured = false,
+  errored = false,
   countRequest = true,
   wireAccounting = true,
 }) {
@@ -66,6 +77,19 @@ export function accumulate(day, {
   let h = host ? s.h[host] : null;
   if (host && !h) h = s.h[host] = emptyCounters();
 
+  // A failed request is its own event: it is counted as a request (so it is
+  // visible) and as errored (so its unseen bytes are not silently assumed to be
+  // zero), but it carries no size, so no wire accounting is applied.
+  if (errored) {
+    if (countRequest) {
+      s.r += 1;
+      if (h) h.r += 1;
+    }
+    s.e += 1;
+    if (h) h.e += 1;
+    return day;
+  }
+
   if (countRequest) {
     s.r += 1;
     if (h) h.r += 1;
@@ -74,6 +98,10 @@ export function accumulate(day, {
   if (measured) {
     s.dm += 1;
     if (h) h.dm += 1;
+  }
+  if (unmeasured) {
+    s.x += 1;
+    if (h) h.x += 1;
   }
   if (decoded != null && decoded > 0) {
     s.d += decoded;
@@ -111,12 +139,12 @@ export function mergeDay(target, source) {
     let t = out[site];
     if (!t) t = out[site] = { ...emptyCounters(), h: {} };
     t.b += s.b || 0; t.r += s.r || 0; t.u += s.u || 0; t.c += s.c || 0;
-    t.d += s.d || 0; t.dm += s.dm || 0;
+    t.d += s.d || 0; t.dm += s.dm || 0; t.e += s.e || 0; t.x += s.x || 0;
     for (const [host, h] of Object.entries(s.h || {})) {
       let th = t.h[host];
       if (!th) th = t.h[host] = emptyCounters();
       th.b += h.b || 0; th.r += h.r || 0; th.u += h.u || 0; th.c += h.c || 0;
-      th.d += h.d || 0; th.dm += h.dm || 0;
+      th.d += h.d || 0; th.dm += h.dm || 0; th.e += h.e || 0; th.x += h.x || 0;
     }
   }
   return out;
@@ -127,7 +155,7 @@ function structuredCloneDay(day) {
   for (const [site, s] of Object.entries(day)) {
     const h = {};
     for (const [host, c] of Object.entries(s.h || {})) h[host] = { ...emptyCounters(), ...c };
-    out[site] = { b: s.b, r: s.r, u: s.u, c: s.c, d: s.d || 0, dm: s.dm || 0, h };
+    out[site] = { b: s.b, r: s.r, u: s.u, c: s.c, d: s.d || 0, dm: s.dm || 0, e: s.e || 0, x: s.x || 0, h };
   }
   return out;
 }
@@ -170,13 +198,15 @@ export function aggregate(days, opts = {}) {
 
 function addRow(map, key, c) {
   let row = map.get(key);
-  if (!row) row = { bytes: 0, requests: 0, unknown: 0, cached: 0, decoded: 0, measured: 0 };
+  if (!row) row = { bytes: 0, requests: 0, unknown: 0, cached: 0, decoded: 0, measured: 0, errored: 0, unmeasured: 0 };
   row.bytes += c.b;
   row.requests += c.r;
   row.unknown += c.u;
   row.cached += c.c;
   row.decoded += c.d || 0;
   row.measured += c.dm || 0;
+  row.errored += c.e || 0;
+  row.unmeasured += c.x || 0;
   map.set(key, row);
 }
 
@@ -190,19 +220,25 @@ export function sumRows(rows) {
       cached: acc.cached + r.cached,
       decoded: acc.decoded + (r.decoded || 0),
       measured: acc.measured + (r.measured || 0),
+      errored: acc.errored + (r.errored || 0),
+      unmeasured: acc.unmeasured + (r.unmeasured || 0),
     }),
-    { bytes: 0, requests: 0, unknown: 0, cached: 0, decoded: 0, measured: 0 }
+    { bytes: 0, requests: 0, unknown: 0, cached: 0, decoded: 0, measured: 0, errored: 0, unmeasured: 0 }
   );
 }
 
 /**
  * How much of the measured traffic has a known size. `unknown` responses have no
  * Content-Length (chunked, streamed, some 304s), so their bytes are missing from
- * the totals. Returns a fraction in [0,1]; 1 when there is nothing to report.
+ * the totals; `errored` requests are blind spots too (they may have transferred
+ * bytes before failing), so both count against coverage. Cached hits moved no
+ * network bytes, so they are left out of the ratio entirely. Returns a fraction
+ * in [0,1]; 1 when there is nothing to report.
  */
 export function coverage(totals) {
-  const known = totals.requests - totals.unknown - totals.cached;
-  const denom = known + totals.unknown;
+  const errored = totals.errored || 0;
+  const known = totals.requests - totals.unknown - totals.cached - errored;
+  const denom = known + totals.unknown + errored;
   if (denom <= 0) return 1;
   return known / denom;
 }
@@ -230,7 +266,7 @@ export function formatBytes(n) {
 
 /** Build a CSV document from aggregate() rows. */
 export function rowsToCsv(rows) {
-  const header = "key,bytes,decoded_bytes,requests,unknown_size,cached,decoded_measured";
+  const header = "key,bytes,decoded_bytes,requests,unknown_size,cached,decoded_measured,errored,unmeasured";
   const lines = rows.map((r) =>
     [
       csvCell(r.key),
@@ -240,6 +276,8 @@ export function rowsToCsv(rows) {
       r.unknown,
       r.cached,
       r.measured || 0,
+      r.errored || 0,
+      r.unmeasured || 0,
     ].join(",")
   );
   return [header, ...lines].join("\n");

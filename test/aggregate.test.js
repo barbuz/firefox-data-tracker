@@ -51,6 +51,39 @@ test("accumulate ignores requests with no attributable site", () => {
   assert.deepEqual(day, {});
 });
 
+test("accumulate counts errored requests as a request with no known size", () => {
+  const day = {};
+  accumulate(day, { site: "example.com", host: "cdn.example.com", bytes: null, fromCache: false, errored: true });
+
+  const s = day["example.com"];
+  assert.equal(s.r, 1, "an errored request is still a request");
+  assert.equal(s.e, 1, "and is flagged as errored");
+  assert.equal(s.b, 0, "no wire bytes are attributed");
+  assert.equal(s.u, 0, "it is not also an unknown-size response");
+  assert.equal(s.h["cdn.example.com"].e, 1);
+});
+
+test("accumulate counts an unmeasured response without touching wire counters", () => {
+  const day = {};
+  // The wire event already counted the request as unknown-size...
+  accumulate(day, { site: "example.com", host: "cdn.example.com", bytes: null, fromCache: false });
+  // ...then precise mode failed to measure it.
+  accumulate(day, {
+    site: "example.com",
+    host: "cdn.example.com",
+    bytes: null,
+    fromCache: false,
+    unmeasured: true,
+    countRequest: false,
+    wireAccounting: false,
+  });
+
+  const s = day["example.com"];
+  assert.equal(s.r, 1, "the request is not double-counted");
+  assert.equal(s.x, 1, "the measurement gap is recorded");
+  assert.equal(s.u, 1, "still unknown size on the wire");
+});
+
 test("mergeDay sums counters across buckets without mutating inputs", () => {
   const a = {};
   accumulate(a, { site: "example.com", host: "example.com", bytes: 100, fromCache: false });
@@ -94,27 +127,38 @@ test("aggregate supports substring filter and top-N", () => {
 
 test("sumRows totals the aggregate output", () => {
   const rows = [
-    { key: "a", bytes: 100, requests: 2, unknown: 0, cached: 1, decoded: 30, measured: 1 },
-    { key: "b", bytes: 50, requests: 1, unknown: 1, cached: 0, decoded: 0, measured: 0 },
+    { key: "a", bytes: 100, requests: 2, unknown: 0, cached: 1, decoded: 30, measured: 1, errored: 0, unmeasured: 0 },
+    { key: "b", bytes: 50, requests: 1, unknown: 1, cached: 0, decoded: 0, measured: 0, errored: 1, unmeasured: 2 },
   ];
   assert.deepEqual(sumRows(rows), {
-    bytes: 150, requests: 3, unknown: 1, cached: 1, decoded: 30, measured: 1,
+    bytes: 150, requests: 3, unknown: 1, cached: 1, decoded: 30, measured: 1, errored: 1, unmeasured: 2,
   });
 });
 
 test("coverage reports the share of responses with a known wire size", () => {
   // 3 of 4 countable responses have a size (cached hits are not counted).
   assert.equal(
-    coverage({ bytes: 0, requests: 5, unknown: 1, cached: 1, decoded: 0, measured: 0 }),
+    coverage({ bytes: 0, requests: 5, unknown: 1, cached: 1, decoded: 0, measured: 0, errored: 0 }),
     0.75
+  );
+  // Failed requests are blind spots: they count against coverage.
+  // 3 of 5 countable responses have a size (5 requests, 1 unknown, 1 errored).
+  assert.equal(
+    coverage({ bytes: 0, requests: 5, unknown: 1, cached: 0, decoded: 0, measured: 0, errored: 1 }),
+    0.6
+  );
+  // Everything errored: no known sizes at all.
+  assert.equal(
+    coverage({ bytes: 0, requests: 1, unknown: 0, cached: 0, decoded: 0, measured: 0, errored: 1 }),
+    0
   );
   // Nothing countable at all is treated as fully covered, not as 0.
   assert.equal(
-    coverage({ bytes: 0, requests: 2, unknown: 0, cached: 2, decoded: 0, measured: 0 }),
+    coverage({ bytes: 0, requests: 2, unknown: 0, cached: 2, decoded: 0, measured: 0, errored: 0 }),
     1
   );
   assert.equal(
-    coverage({ bytes: 0, requests: 0, unknown: 0, cached: 0, decoded: 0, measured: 0 }),
+    coverage({ bytes: 0, requests: 0, unknown: 0, cached: 0, decoded: 0, measured: 0, errored: 0 }),
     1
   );
 });
@@ -137,9 +181,9 @@ test("formatBytes uses binary units", () => {
 
 test("rowsToCsv escapes commas and quotes", () => {
   const csv = rowsToCsv([
-    { key: 'a,"b"', bytes: 1, decoded: 9, requests: 2, unknown: 3, cached: 4, measured: 5 },
+    { key: 'a,"b"', bytes: 1, decoded: 9, requests: 2, unknown: 3, cached: 4, measured: 5, errored: 6, unmeasured: 7 },
   ]);
   const lines = csv.split("\n");
-  assert.equal(lines[0], "key,bytes,decoded_bytes,requests,unknown_size,cached,decoded_measured");
-  assert.equal(lines[1], '"a,""b""",1,9,2,3,4,5');
+  assert.equal(lines[0], "key,bytes,decoded_bytes,requests,unknown_size,cached,decoded_measured,errored,unmeasured");
+  assert.equal(lines[1], '"a,""b""",1,9,2,3,4,5,6,7');
 });

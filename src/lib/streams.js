@@ -22,11 +22,16 @@ export class StreamTracker {
    *        (id) => browser.webRequest.filterResponseData(id)
    * @param {(meta: object, decodedBytes: number) => void} deps.onMeasure
    *        called once per attached response, with the decoded byte total
+   * @param {(meta: object) => void} [deps.onSkip]
+   *        called when a response precise mode wanted to measure could not be
+   *        (no filter could be created, or one was torn down before any bytes
+   *        arrived). Lets the caller surface a silently failing precise mode.
    * @param {number} [deps.maxPending]  cap on simultaneously open filters
    */
-  constructor({ createFilter, onMeasure, maxPending = 500 }) {
+  constructor({ createFilter, onMeasure, onSkip, maxPending = 500 }) {
     this.createFilter = createFilter;
     this.onMeasure = onMeasure;
+    this.onSkip = onSkip || (() => {});
     this.maxPending = maxPending;
     this.pending = new Map();
   }
@@ -45,9 +50,13 @@ export class StreamTracker {
     try {
       filter = this.createFilter(requestId);
     } catch {
+      this.reportSkip(meta);
       return false;
     }
-    if (!filter) return false;
+    if (!filter) {
+      this.reportSkip(meta);
+      return false;
+    }
 
     const state = { meta, bytes: 0, done: false, filter };
     this.pending.set(requestId, state);
@@ -103,6 +112,21 @@ export class StreamTracker {
     }
   }
 
+  /**
+   * Report that a response precise mode intended to measure produced no
+   * measurement at all. Only genuine failures call this — an empty-but-successful
+   * response (204, cached, aborted with no body) is not a failure and is not
+   * reported, so the counter stays meaningful.
+   */
+  reportSkip(meta) {
+    if (!meta?.site) return;
+    try {
+      this.onSkip(meta);
+    } catch {
+      // Bookkeeping must never surface into the filter's event loop.
+    }
+  }
+
   /** Cap open filters so a lost onstop cannot grow memory without bound. */
   evictOverflow() {
     while (this.pending.size > this.maxPending) {
@@ -114,6 +138,9 @@ export class StreamTracker {
       } catch {
         // Ignore: the filter may already be gone.
       }
+      // An evicted filter that never delivered a byte is a coverage gap worth
+      // reporting; one that already delivered partial bytes is a measurement.
+      if (state.bytes === 0) this.reportSkip(state.meta);
       this.finish(id, state, state.bytes > 0);
     }
   }
@@ -127,6 +154,10 @@ export class StreamTracker {
       } catch {
         // Ignore.
       }
+      // A filter that never delivered a byte was never measured; on shutdown
+      // that is a gap. (Disabling precise mode is expected, so the caller
+      // decides whether to act on the count.)
+      if (state.bytes === 0) this.reportSkip(state.meta);
       this.finish(id, state, state.bytes > 0);
     }
   }

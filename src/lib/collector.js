@@ -56,6 +56,53 @@ export class Collector {
   }
 
   /**
+   * Called on webRequest.onErrorOccurred. A request that failed part-way may
+   * still have transferred bytes that we can never see (there is no
+   * Content-Length and no onCompleted), so it is recorded as a request and as
+   * errored rather than being dropped. This is what keeps cancelled or failed
+   * large downloads from silently vanishing from the totals.
+   */
+  handleErrored(details) {
+    if (details.type === "speculative") return;
+
+    const site = siteKeyForRequest(details);
+    if (!site) return;
+
+    const date = dateKey(details.timeStamp || Date.now());
+    const day = (this.buffer[date] ||= {});
+    accumulate(day, {
+      site,
+      host: servingHostForRequest(details),
+      bytes: null,
+      fromCache: false,
+      errored: true,
+    });
+    this.requestFlush();
+  }
+
+  /**
+   * Called by the StreamTracker when precise mode wanted to measure a response
+   * but could not (the filter could not be attached, or was torn down before
+   * any bytes arrived). Counted so a silently failing precise mode is visible
+   * instead of just under-reporting.
+   */
+  handleSkipped(meta) {
+    if (!meta?.site) return;
+    const date = dateKey(meta.timeStamp || Date.now());
+    const day = (this.buffer[date] ||= {});
+    accumulate(day, {
+      site: meta.site,
+      host: meta.host,
+      bytes: null,
+      fromCache: false,
+      unmeasured: true,
+      countRequest: false,
+      wireAccounting: false,
+    });
+    this.requestFlush();
+  }
+
+  /**
    * Called by the StreamTracker once a filtered response has fully arrived.
    *
    * This is a *second* event for a request already seen on onCompleted, so it

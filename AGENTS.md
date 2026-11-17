@@ -30,6 +30,16 @@ Node 18+ is needed for tests only.
   (BCD: `service_worker` Firefox support = false). MV3 event pages are
   non-persistent, so all durable state must live in `storage.local`; the
   in-memory buffer in `Collector` is only a write buffer.
+- Event-page listeners must be registered **synchronously at the top level**, not
+  after an `await`. The page only restarts for events whose listeners existed
+  during the synchronous first run; registering `webRequest.onCompleted` after
+  `await collector.init()` means those events stop waking the page and the
+  requests are silently lost. `bootstrap()` therefore only loads settings; the
+  listeners are registered before it runs.
+- `onErrorOccurred` is a separate event from `onCompleted`. A request that fails
+  or is cancelled mid-flight never fires `onCompleted`, so without this listener
+  its (possibly large) transferred bytes vanish entirely. It is counted as a
+  request and flagged `errored`, never as known-size.
 - `src/ui/dashboard.*` is the `options_ui` page (opened in a tab). `src/ui/popup.*`
   is the toolbar action.
 
@@ -67,14 +77,17 @@ Node 18+ is needed for tests only.
 ## Storage model
 
 One `storage.local` key per day: `day:YYYY-MM-DD`, plus a `settings` key. A day
-bucket is `{ [site]: { b, r, u, c, d, dm, h: { [host]: {b,r,u,c,d,dm} } } }` where
-`b`=wire bytes, `r`=requests, `u`=unknown size, `c`=cached, `d`=decoded bytes
-(precise mode), `dm`=measured responses. Aggregation (not per-request rows)
-bounds growth by days × sites × hosts. Writes are debounced (3 s) in `Collector`
-and also flushed on `runtime.onSuspend` and a periodic alarm.
+bucket is `{ [site]: { b, r, u, c, d, dm, e, x, h: { [host]: {b,r,u,c,d,dm,e,x} } } }`
+where `b`=wire bytes, `r`=requests, `u`=unknown size, `c`=cached, `d`=decoded
+bytes (precise mode), `dm`=measured responses, `e`=failed requests
+(`webRequest.onErrorOccurred`; they may have moved bytes we can never see),
+`x`=responses precise mode tried but failed to measure. Aggregation (not
+per-request rows) bounds growth by days × sites × hosts. Writes are debounced
+(3 s) in `Collector` and also flushed on `runtime.onSuspend` and a periodic
+alarm.
 
-`d`/`dm` default to 0 in `emptyCounters()`, so day buckets written by older
-versions read back without migration.
+`d`/`dm`/`e`/`x` default to 0 in `emptyCounters()`, so day buckets written by
+older versions read back without migration.
 
 When changing the storage shape, update `mergeDay`/`accumulate` in
 `lib/aggregate.js` and the tests together.

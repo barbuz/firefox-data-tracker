@@ -15,6 +15,7 @@ const collector = new Collector({
 const tracker = new StreamTracker({
   createFilter: (requestId) => browser.webRequest.filterResponseData(requestId),
   onMeasure: (meta, decodedBytes) => collector.handleMeasured(meta, decodedBytes),
+  onSkip: (meta) => collector.handleSkipped(meta),
 });
 
 const PRUNE_ALARM = "prune-and-flush";
@@ -31,10 +32,21 @@ let preciseListener = null;
 // which throws. Serialise the calls instead.
 let syncChain = Promise.resolve();
 
+// Register listeners synchronously, before any await. A non-persistent (event
+// page) background only restarts for events whose listeners were registered
+// during the synchronous first run of the page; registering after an await
+// (e.g. after loading settings) means those events no longer wake the page, and
+// the requests they carry are silently lost. See MDN "Background scripts →
+// Add listeners".
+registerListeners();
+registerAlarm();
+
+// Load persisted settings and reconcile precise mode. Safe to do after the
+// listeners are live: the collector treats a missing setting as its default.
+bootstrap().catch((err) => console.error("Data Usage Tracker failed to start", err));
+
 async function bootstrap() {
   await collector.init();
-  registerListeners();
-  registerAlarm();
   await syncPreciseMode();
 }
 
@@ -45,6 +57,14 @@ function registerListeners() {
     (details) => collector.handleCompleted(details),
     { urls: ["<all_urls>"] },
     ["responseHeaders"]
+  );
+
+  // Requests that failed mid-flight (cancelled downloads, network errors) can
+  // still have transferred bytes we can never see. Counting them keeps those
+  // bytes from silently vanishing from the totals.
+  browser.webRequest.onErrorOccurred.addListener(
+    (details) => collector.handleErrored(details),
+    { urls: ["<all_urls>"] }
   );
 
   // Re-read settings when they change so toggles take effect without a reload.
@@ -139,5 +159,3 @@ async function hasPrecisePermissions() {
     return false;
   }
 }
-
-bootstrap().catch((err) => console.error("Data Usage Tracker failed to start", err));

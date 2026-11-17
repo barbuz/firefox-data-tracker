@@ -28,6 +28,16 @@ listener is *informational only* (see MDN: "This event is informational only"),
 so it never adds latency to a page load. We record a count of responses with
 **unknown size** so the coverage gap is visible instead of silently wrong.
 
+### Failed and cancelled requests
+
+`onCompleted` only fires for requests that finished. A request that fails or is
+cancelled part-way — a large download the user stopped, a dropped connection —
+never reaches it, so without extra handling its transferred bytes would be
+invisible entirely. `webRequest.onErrorOccurred` fires in that case, and the
+extension counts the request and flags it `errored` (`e`). It has no known size,
+so it is never added to the wire bytes and it counts against known-size
+coverage: it is a *known blind spot*, recorded rather than silently dropped.
+
 ### Precise mode, and why both numbers are stored
 
 The two approaches measure **different quantities**: `Content-Length` is the
@@ -68,6 +78,13 @@ The stream filter must obey two rules, both enforced in `src/lib/streams.js`:
 2. Every filter is always closed or disconnected. A filter left open holds the
    response open indefinitely, so a leaked filter is a hung page load. Open
    filters are also capped, and all are released on event-page suspend.
+
+Precise mode can also *fail* to measure a response: the filter could not be
+created (the API threw, or the request was already gone), the cap evicted it
+before any bytes arrived, or it was disconnected with nothing measured. Each of
+those is counted as `unmeasured` (`x`) and surfaced in the dashboard, so a
+silently failing precise mode shows up as a coverage gap instead of just
+under-reporting the decoded column.
 
 WebSocket payloads and DNS/TLS bytes remain out of scope: `webRequest` sees only
 the WebSocket handshake, and no WebExtension API exposes handshake byte counts.
@@ -118,8 +135,10 @@ Data is aggregated, not stored per request. Each calendar day is one
     "c": 33,                       // requests served from cache (excluded from b)
     "d": 0,                        // decoded bytes (precise mode only)
     "dm": 0,                       // responses that contributed a d measurement
+    "e": 2,                        // requests that failed (onErrorOccurred)
+    "x": 0,                        // precise-mode measurements that failed
     "h": {                         // per serving-host breakdown
-      "cdn.example.com": { "b": 9437184, "r": 300, "u": 2, "c": 10, "d": 0, "dm": 0 }
+      "cdn.example.com": { "b": 9437184, "r": 300, "u": 2, "c": 10, "d": 0, "dm": 0, "e": 1, "x": 0 }
     }
   }
 }
@@ -149,7 +168,12 @@ Firefox does not support MV3 service workers, so the background is an **event
 page** (`background.scripts`, `persistent` defaults to `false` in MV3). Because
 the page can be unloaded when idle, all durable state lives in `storage.local`;
 the in-memory map is only a write buffer. Listeners are re-registered on each
-startup.
+startup, and — crucially — they are registered **synchronously at the top level**
+of the page. An event page only restarts for events whose listeners were present
+during the synchronous first run; registering `onCompleted` after an `await`
+would mean the page is no longer woken by completed requests, silently losing
+them. Loading persisted settings is therefore deferred until after the listeners
+are live, and the collector treats a not-yet-loaded setting as its default.
 
 ## Permissions
 
@@ -186,7 +210,8 @@ dashboard reads aggregate data from `storage` directly.
 - Group-by toggle: **site** or **serving host**.
 - Site filter (substring match + include/exclude the top N).
 - Sortable table: wire bytes (with bar), decoded bytes (precise mode only),
-  requests, unknown-size count, cached count.
+  requests, unknown-size count, cached count, errored count, and unmeasured
+  (precise-mode gap) count.
 - Totals, including the share of responses that have a known wire size, and a
   **CSV export** of the current filtered view.
 
@@ -196,7 +221,14 @@ measured anything, and the top few sites.
 ## Known limitations
 
 - Responses without `Content-Length` are counted as "unknown", not zero.
+- Failed or cancelled requests are counted as "errored", not zero: they may have
+  transferred bytes we can never see.
 - Request headers, TLS, DNS, and QUIC overhead are not counted.
+- WebSocket payloads (only the handshake is visible), WebRTC media/data, and
+  browser-internal traffic (telemetry, Sync, updates) never reach `webRequest`,
+  so no extension can measure them. On Android these can dwarf measurable
+  browsing traffic.
+- Traffic in private tabs is only counted if the extension is enabled there.
 - Registrable-domain reduction is approximate (embedded suffix list).
 - Nested-iframe attribution uses the iframe document, not the top page.
 - Data is per browser profile; it does not sync.

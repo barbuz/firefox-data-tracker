@@ -64,7 +64,9 @@ headers and attributes it to the page's registrable domain. Details and caveats
 (compression, chunked responses with no length, cache, TLS/DNS overhead) are in
 [DESIGN.md](DESIGN.md). Responses with no `Content-Length` are counted in a
 separate **Unknown size** column rather than being treated as zero, so coverage
-gaps are visible.
+gaps are visible. Requests that fail or are cancelled mid-flight are counted in
+an **Errors** column: they never reach `onCompleted`, so their transferred bytes
+cannot be attributed, and they are shown rather than silently dropped.
 
 ### Precise mode
 

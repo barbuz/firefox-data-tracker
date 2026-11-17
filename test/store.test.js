@@ -107,6 +107,37 @@ test("collector counts unknown-size and cached responses", async () => {
   assert.equal(day["example.com"].r, 2, "speculative request ignored");
 });
 
+test("collector counts failed requests instead of dropping them", async () => {
+  const store = new Store(new FakeArea());
+  const collector = new Collector({ store, getSettings: () => store.getSettings() });
+  await collector.init();
+
+  collector.handleErrored(completed({ responseHeaders: [], url: "https://cdn.example.net/big.iso" }));
+  collector.handleErrored(completed({ type: "speculative" }));
+
+  const day = collector.buffer["2026-01-05"];
+  assert.equal(day["example.com"].r, 1, "the failed request is still counted");
+  assert.equal(day["example.com"].e, 1, "and flagged as errored");
+  assert.equal(day["example.com"].b, 0);
+  assert.equal(day["example.com"].h["cdn.example.net"].e, 1);
+});
+
+test("collector records a precise-mode measurement gap without double-counting", async () => {
+  const store = new Store(new FakeArea());
+  const collector = new Collector({ store, getSettings: () => store.getSettings() });
+  await collector.init();
+
+  // The request itself, which onCompleted already counted as unknown size.
+  collector.handleCompleted(completed({ responseHeaders: [] }));
+  // Precise mode wanted to measure it but could not attach a filter.
+  collector.handleSkipped({ site: "example.com", host: "cdn.example.net", timeStamp: completed().timeStamp });
+
+  const day = collector.buffer["2026-01-05"];
+  assert.equal(day["example.com"].r, 1, "request counted once");
+  assert.equal(day["example.com"].u, 1, "still unknown size");
+  assert.equal(day["example.com"].x, 1, "measurement gap recorded");
+});
+
 test("collector retries a failed flush instead of dropping data", async () => {
   const store = new Store(new FakeArea());
   let failNext = true;

@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 
 import { Store } from "../src/lib/store.js";
 import { Collector } from "../src/lib/collector.js";
-import { aggregate, dateRange, sumRows, formatBytes } from "../src/lib/aggregate.js";
+import { aggregate, dateRange, sumRows, formatBytes, coverage } from "../src/lib/aggregate.js";
 
 class FakeArea {
   constructor() { this.data = {}; }
@@ -156,5 +156,31 @@ test("precise mode makes a streamed SSE response visible end to end", async () =
   const totals = sumRows(aggregate(days, { groupBy: "site" }));
   assert.equal(totals.decoded, 2000);
   assert.equal(totals.bytes, 0);
+});
+
+test("a cancelled download is visible as errored rather than silently missing", async () => {
+  const store = new Store(new FakeArea());
+  const collector = new Collector({ store, getSettings: () => store.getSettings() });
+  await collector.init();
+
+  // A large download the user cancelled: it transferred real bytes, but there is
+  // no onCompleted and no Content-Length, so without onErrorOccurred it would be
+  // completely invisible.
+  collector.handleErrored({
+    type: "xmlhttprequest",
+    timeStamp: DAY,
+    fromCache: false,
+    documentUrl: "https://www.news.example/",
+    url: "https://cdn.assets.net/movie.mp4",
+  });
+  await collector.flush();
+
+  const days = await store.getDays(dateRange("2026-03-10", "2026-03-10"));
+  const row = aggregate(days, { groupBy: "site" }).find((r) => r.key === "news.example");
+  assert.equal(row.requests, 1, "the request is counted");
+  assert.equal(row.errored, 1, "and flagged as errored");
+  assert.equal(row.bytes, 0, "with no bytes we can attribute");
+  // Errored requests are blind spots, so they must not inflate known-size coverage.
+  assert.equal(coverage(sumRows([row])), 0, "no known-size responses at all");
 });
 

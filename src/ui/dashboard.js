@@ -28,7 +28,7 @@ const state = {
   rows: [],
   all: [],
   preciseMode: false,
-  totals: { bytes: 0, requests: 0, unknown: 0, cached: 0, decoded: 0, measured: 0 },
+  totals: { bytes: 0, requests: 0, unknown: 0, cached: 0, decoded: 0, measured: 0, errored: 0, unmeasured: 0 },
 };
 
 async function init() {
@@ -140,6 +140,11 @@ function render() {
   // recorded measurements, so it is hidden otherwise rather than shown as zeros.
   const showDecoded = state.preciseMode || totals.decoded > 0;
   $("colDecoded").hidden = !showDecoded;
+  // Same for the coverage-gap columns: only shown when they have something to say.
+  const showErrored = totals.errored > 0;
+  const showUnmeasured = totals.unmeasured > 0;
+  $("colErrored").hidden = !showErrored;
+  $("colUnmeasured").hidden = !showUnmeasured;
 
   $("colKey").textContent = state.groupBy === "site" ? "Site" : "Serving host";
 
@@ -151,10 +156,12 @@ function render() {
   let summary =
     ` wire · ${totals.requests.toLocaleString()} requests` +
     (totals.unknown ? ` · ${totals.unknown.toLocaleString()} unknown size` : "") +
-    (totals.cached ? ` · ${totals.cached.toLocaleString()} cached` : "");
+    (totals.cached ? ` · ${totals.cached.toLocaleString()} cached` : "") +
+    (showErrored ? ` · ${totals.errored.toLocaleString()} failed` : "");
   if (showDecoded) {
     summary += ` · ${formatBytes(totals.decoded)} decoded` +
       (totals.measured ? ` across ${totals.measured.toLocaleString()} responses` : "");
+    if (showUnmeasured) summary += ` · ${totals.unmeasured.toLocaleString()} unmeasured`;
   }
   const cov = coverage(totals);
   if (totals.unknown > 0 && cov < 1) {
@@ -176,6 +183,12 @@ function render() {
     tr.appendChild(cell(row.requests.toLocaleString(), "num"));
     tr.appendChild(cell(row.unknown.toLocaleString(), "num"));
     tr.appendChild(cell(row.cached.toLocaleString(), "num"));
+    if (showErrored) {
+      tr.appendChild(cell(row.errored.toLocaleString(), "num"));
+    }
+    if (showUnmeasured) {
+      tr.appendChild(cell(row.unmeasured.toLocaleString(), "num"));
+    }
     tbody.appendChild(tr);
   });
 }
