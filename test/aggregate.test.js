@@ -7,6 +7,7 @@ import {
   accumulate,
   mergeDay,
   aggregate,
+  hostBreakdown,
   sumRows,
   dateRange,
   formatBytes,
@@ -157,6 +158,51 @@ test("aggregate groups by site and by serving host", () => {
 
   const byHost = aggregate(days, { groupBy: "host" });
   assert.equal(byHost.find((r) => r.key === "cdn.net").bytes, 150);
+});
+
+test("hostBreakdown lists a site's hosts, largest first", () => {
+  const day = {};
+  accumulate(day, { site: "example.com", host: "cdn.net", bytes: 100, fromCache: false });
+  accumulate(day, { site: "example.com", host: "cdn.net", bytes: 50, fromCache: false });
+  accumulate(day, { site: "example.com", host: "example.com", bytes: 400, fromCache: false });
+  accumulate(day, { site: "example.com", host: "tracker.io", bytes: null, fromCache: false });
+  accumulate(day, { site: "other.com", host: "other.com", bytes: 999, fromCache: false });
+  const days = [{ date: "2026-01-01", data: day }];
+
+  const hosts = hostBreakdown(days, "example.com");
+  assert.deepEqual(hosts.map((r) => r.key), ["example.com", "cdn.net", "tracker.io"]);
+  assert.equal(hosts[0].bytes, 400);
+  assert.equal(hosts[1].bytes, 150, "the two cdn.net requests are folded together");
+  assert.equal(hosts[1].requests, 2);
+  assert.equal(hosts[2].unknown, 1);
+});
+
+test("hostBreakdown sums a host across multiple days", () => {
+  const a = {};
+  accumulate(a, { site: "example.com", host: "cdn.net", bytes: 100, fromCache: false });
+  const b = {};
+  accumulate(b, { site: "example.com", host: "cdn.net", bytes: 250, fromCache: false });
+  const days = [{ date: "2026-01-01", data: a }, { date: "2026-01-02", data: b }];
+
+  const hosts = hostBreakdown(days, "example.com");
+  assert.equal(hosts.length, 1);
+  assert.equal(hosts[0].bytes, 350);
+  assert.equal(hosts[0].requests, 2);
+});
+
+test("hostBreakdown honours the site filter like aggregate does", () => {
+  const day = {};
+  accumulate(day, { site: "example.com", host: "cdn.net", bytes: 100, fromCache: false });
+  const days = [{ date: "2026-01-01", data: day }];
+
+  assert.equal(hostBreakdown(days, "example.com", { siteFilter: "example" }).length, 1);
+  assert.deepEqual(hostBreakdown(days, "example.com", { siteFilter: "nomatch" }), []);
+});
+
+test("hostBreakdown of an unknown site is empty", () => {
+  const day = {};
+  accumulate(day, { site: "example.com", host: "cdn.net", bytes: 100, fromCache: false });
+  assert.deepEqual(hostBreakdown([{ date: "2026-01-01", data: day }], "missing.com"), []);
 });
 
 test("aggregate supports substring filter and top-N", () => {

@@ -47,7 +47,9 @@ Node 18+ is needed for tests only.
   measurement lands on the same row as its request; the index is cleared on every
   flush so it cannot grow unbounded.
 - `src/ui/dashboard.*` is the `options_ui` page (opened in a tab). `src/ui/popup.*`
-  is the toolbar action.
+  is the toolbar action. In the site view, a dashboard row expands (click) into
+  its per-host breakdown via `hostBreakdown()` — the per-host `h` map is already
+  stored, so this needs no extra data, only a second aggregation pass.
 
 ## Key facts that shaped the code (verified against MDN/BCD)
 

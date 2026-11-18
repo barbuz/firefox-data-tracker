@@ -53,7 +53,8 @@ set to `false` in `about:config`.
 - **Dashboard** (Options page):
   - **From / To** date pickers, plus Today / 7 days / 30 days / All presets.
   - **Group by** site (the page that caused the traffic, including its third
-    parties) or serving host (who actually served the bytes).
+    parties) or serving host (who actually served the bytes). In the site view,
+    click a row to expand it into the per-host breakdown that made up its total.
   - **Site filter** — substring match.
   - **Top N** — limit the table without changing the totals.
   - **Export CSV** — exports all rows matching the current filters.

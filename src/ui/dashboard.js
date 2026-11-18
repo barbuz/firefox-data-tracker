@@ -4,6 +4,7 @@
 import { Store } from "../lib/store.js";
 import {
   aggregate,
+  hostBreakdown,
   dateRange,
   dateKey,
   formatBytes,
@@ -29,6 +30,8 @@ const state = {
   topN: 0,
   rows: [],
   all: [],
+  days: [],
+  expanded: new Set(),
   preciseMode: false,
   totals: { bytes: 0, requests: 0, unknown: 0, cached: 0, cachedBytes: 0, decoded: 0, measured: 0, errored: 0, unmeasured: 0 },
 };
@@ -121,6 +124,7 @@ async function applyPreset(preset) {
 async function load() {
   const dates = dateRange(state.from, state.to);
   const days = await store.getDays(dates);
+  state.days = days;
   // Aggregate everything matching the filters first so the totals are honest,
   // then apply the top-N display limit.
   const all = aggregate(days, {
@@ -130,6 +134,9 @@ async function load() {
   state.totals = sumRows(all);
   state.all = all;
   state.rows = state.topN > 0 ? all.slice(0, state.topN) : all;
+  // A row that is no longer shown (or no longer exists) should not stay expanded.
+  const shown = new Set(state.rows.map((r) => r.key));
+  for (const key of [...state.expanded]) if (!shown.has(key)) state.expanded.delete(key);
   render();
 }
 
@@ -181,29 +188,107 @@ function render() {
 
   renderReasons(state.all);
 
+  const cols = {
+    decoded: showDecoded,
+    cachedBytes: showCachedBytes,
+    errored: showErrored,
+    unmeasured: showUnmeasured,
+  };
+  const expandable = state.groupBy === "site";
+
   state.rows.forEach((row, i) => {
-    const tr = document.createElement("tr");
-    tr.appendChild(cell(String(i + 1), "num"));
-    tr.appendChild(cell(row.key));
-    tr.appendChild(cell(formatBytes(row.bytes), "num"));
-    if (showDecoded) {
-      tr.appendChild(cell(row.decoded ? formatBytes(row.decoded) : "—", "num"));
+    const expanded = expandable && state.expanded.has(row.key);
+    tbody.appendChild(rowElement(row, { index: i + 1, cols, max, expandable, expanded }));
+
+    if (!expanded) return;
+    // "Per site" rows are the page plus its third parties, so expand to the
+    // serving hosts that made up the total. Bars are scaled to the largest host
+    // so the breakdown reads on its own terms.
+    const hosts = hostBreakdown(state.days, row.key, { siteFilter: state.siteFilter });
+    if (hosts.length === 0) {
+      tbody.appendChild(noteRow(cols, "No per-host breakdown recorded for this site."));
+      return;
     }
-    tr.appendChild(meterCell(max ? row.bytes / max : 0));
-    tr.appendChild(cell(row.requests.toLocaleString(), "num"));
-    tr.appendChild(cell(row.unknown.toLocaleString(), "num"));
-    tr.appendChild(cell(row.cached.toLocaleString(), "num"));
-    if (showCachedBytes) {
-      tr.appendChild(cell(row.cachedBytes ? formatBytes(row.cachedBytes) : "—", "num"));
+    const hostMax = hosts[0].bytes;
+    for (const h of hosts) {
+      tbody.appendChild(rowElement(h, { cols, max: hostMax, child: true }));
     }
-    if (showErrored) {
-      tr.appendChild(cell(row.errored.toLocaleString(), "num"));
-    }
-    if (showUnmeasured) {
-      tr.appendChild(cell(row.unmeasured.toLocaleString(), "num"));
-    }
-    tbody.appendChild(tr);
   });
+}
+
+/** Number of visible table columns, used to span the note row correctly. */
+function columnCount(cols) {
+  return 2 + 1 + (cols.decoded ? 1 : 0) + 1 + 3 +
+    (cols.cachedBytes ? 1 : 0) + (cols.errored ? 1 : 0) + (cols.unmeasured ? 1 : 0);
+}
+
+function rowElement(row, { index, cols, max, expandable = false, expanded = false, child = false }) {
+  const tr = document.createElement("tr");
+  if (child) tr.className = "host-row";
+  tr.appendChild(cell(index != null ? String(index) : "", "num"));
+  tr.appendChild(keyCell(row.key, { expandable, expanded, child }));
+  tr.appendChild(cell(formatBytes(row.bytes), "num"));
+  if (cols.decoded) {
+    tr.appendChild(cell(row.decoded ? formatBytes(row.decoded) : "—", "num"));
+  }
+  tr.appendChild(meterCell(max ? row.bytes / max : 0));
+  tr.appendChild(cell(row.requests.toLocaleString(), "num"));
+  tr.appendChild(cell(row.unknown.toLocaleString(), "num"));
+  tr.appendChild(cell(row.cached.toLocaleString(), "num"));
+  if (cols.cachedBytes) {
+    tr.appendChild(cell(row.cachedBytes ? formatBytes(row.cachedBytes) : "—", "num"));
+  }
+  if (cols.errored) {
+    tr.appendChild(cell(row.errored.toLocaleString(), "num"));
+  }
+  if (cols.unmeasured) {
+    tr.appendChild(cell(row.unmeasured.toLocaleString(), "num"));
+  }
+  return tr;
+}
+
+/**
+ * The key cell. A "site" row is clickable to reveal its per-host breakdown; the
+ * host rows beneath it are plain, indented text.
+ */
+function keyCell(key, { expandable, expanded, child }) {
+  const td = document.createElement("td");
+  if (child) td.className = "host-key";
+  if (!expandable) {
+    td.textContent = key;
+    return td;
+  }
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "row-toggle";
+  btn.setAttribute("aria-expanded", String(expanded));
+  const chevron = document.createElement("span");
+  chevron.className = "chevron";
+  chevron.textContent = expanded ? "▾" : "▸";
+  const name = document.createElement("span");
+  name.textContent = key;
+  btn.append(chevron, name);
+  btn.addEventListener("click", () => toggleSite(key));
+  td.appendChild(btn);
+  return td;
+}
+
+function toggleSite(key) {
+  if (state.expanded.has(key)) state.expanded.delete(key);
+  else state.expanded.add(key);
+  render();
+}
+
+function noteRow(cols, text) {
+  const tr = document.createElement("tr");
+  tr.className = "host-row";
+  tr.appendChild(cell("", "num"));
+  const td = document.createElement("td");
+  td.className = "host-key note";
+  td.colSpan = columnCount(cols) - 1;
+  td.textContent = text;
+  tr.appendChild(td);
+  return tr;
 }
 
 function cell(text, cls) {

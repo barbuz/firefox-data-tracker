@@ -267,6 +267,9 @@ dashboard reads aggregate data from `storage` directly.
 
 - Date range (from/to) and quick presets (today / 7d / 30d).
 - Group-by toggle: **site** or **serving host**.
+- In the site view, clicking a row expands it into the per-host breakdown that
+  made up that site's total (from the same `h` map the day buckets already keep),
+  so "which servers did this site actually pull from" is one click away.
 - Site filter (substring match + include/exclude the top N).
 - Sortable table: wire bytes (with bar), decoded bytes (precise mode only),
   requests, unknown-size count, cached count, cached bytes, errored count, and
