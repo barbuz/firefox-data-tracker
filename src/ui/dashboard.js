@@ -169,7 +169,7 @@ function render() {
   totalsEl.appendChild(strong);
   let summary =
     ` wire · ${totals.requests.toLocaleString()} requests` +
-    (totals.unknown ? ` · ${totals.unknown.toLocaleString()} unknown size` : "") +
+    (totals.unknown ? ` · ${totals.unknown.toLocaleString()} unknown wire size` : "") +
     (totals.cached ? ` · ${totals.cached.toLocaleString()} cached` : "") +
     (showCachedBytes ? ` (${formatBytes(totals.cachedBytes)})` : "") +
     (showErrored ? ` · ${totals.errored.toLocaleString()} failed` : "");

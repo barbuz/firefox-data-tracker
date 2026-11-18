@@ -28,7 +28,7 @@ are two ways to get sizes, with different trade-offs:
 We default to the **header approach** because it is genuinely lightweight: the
 listener is *informational only* (see MDN: "This event is informational only"),
 so it never adds latency to a page load. We record a count of responses with
-**unknown size** so the coverage gap is visible instead of silently wrong.
+**unknown wire size** so the coverage gap is visible instead of silently wrong.
 
 ### Failed and cancelled requests
 
@@ -180,7 +180,7 @@ Data is aggregated, not stored per request. Each calendar day is one
   "example.com": {                 // site (registrable domain)
     "b": 10485760,                 // wire bytes with known size (Content-Length)
     "r": 412,                      // completed requests
-    "u": 7,                        // requests with unknown size (no Content-Length)
+    "u": 7,                        // requests with unknown wire size (no Content-Length)
     "c": 33,                       // requests served from disk cache (excluded from b)
     "cb": 262144,                  // bytes of the cached responses (never in b)
     "d": 0,                        // decoded bytes (precise mode only)
@@ -272,8 +272,8 @@ dashboard reads aggregate data from `storage` directly.
   so "which servers did this site actually pull from" is one click away.
 - Site filter (substring match + include/exclude the top N).
 - Sortable table: wire bytes (with bar), decoded bytes (precise mode only),
-  requests, unknown-size count, cached count, cached bytes, errored count, and
-  unmeasured (precise-mode gap) count.
+  requests, unknown wire size count, cached count, cached bytes, errored count,
+  and unmeasured (precise-mode gap) count.
 - **Why requests failed** — a panel listing the error-reason histogram, so the
   errored count is explained rather than just shown.
 - Totals, including the share of responses that have a known wire size, and a

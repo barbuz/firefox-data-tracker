@@ -72,15 +72,15 @@ For each completed request the extension reads `Content-Length` from the respons
 headers and attributes it to the page's registrable domain. Details and caveats
 (compression, chunked responses with no length, cache, TLS/DNS overhead) are in
 [DESIGN.md](DESIGN.md). Responses with no `Content-Length` are counted in a
-separate **Unknown size** column rather than being treated as zero, so coverage
-gaps are visible. Responses served from disk cache moved no network bytes, so
-their count goes in a **Cached** column and their size in a separate **Cached
-bytes** column, never in the wire total. Requests that fail or are cancelled
-mid-flight are counted in an **Errors** column: they never reach `onCompleted`,
-so their transferred bytes cannot be attributed, and they are shown rather than
-silently dropped. The **Why requests failed** panel breaks those errors down by
-reason, so the cause (a timeout, an abort, a dropped connection) is visible, not
-just the count.
+separate **Unknown wire size** column rather than being treated as zero, so
+coverage gaps are visible. Responses served from disk cache moved no network
+bytes, so their count goes in a **Cached** column and their size in a separate
+**Cached bytes** column, never in the wire total. Requests that fail or are
+cancelled mid-flight are counted in an **Errors** column: they never reach
+`onCompleted`, so their transferred bytes cannot be attributed, and they are
+shown rather than silently dropped. The **Why requests failed** panel breaks
+those errors down by reason, so the cause (a timeout, an abort, a dropped
+connection) is visible, not just the count.
 
 ### Precise mode
 

@@ -87,7 +87,7 @@ Node 18+ is needed for tests only.
 
 One `storage.local` key per day: `day:YYYY-MM-DD`, plus a `settings` key. A day
 bucket is `{ [site]: { b, r, u, c, cb, d, dm, e, x, er, h: { [host]: {b,r,u,c,cb,d,dm,e,x,er} } } }`
-where `b`=wire bytes, `r`=requests, `u`=unknown size, `c`=cached, `cb`=bytes of
+where `b`=wire bytes, `r`=requests, `u`=unknown wire size, `c`=cached, `cb`=bytes of
 those cached responses, `d`=decoded bytes (precise mode), `dm`=measured
 responses, `e`=failed requests (`webRequest.onErrorOccurred`; they may have moved
 bytes we can never see), `x`=responses precise mode tried but failed to measure,
