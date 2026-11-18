@@ -54,7 +54,10 @@ Node 18+ is needed for tests only.
 ## Key facts that shaped the code (verified against MDN/BCD)
 
 - `webRequest` exposes **no byte count**. Sizes come from `Content-Length` via
-  `onCompleted` + the `"responseHeaders"` extraInfoSpec.
+  `onCompleted` + the `"responseHeaders"` extraInfoSpec. `details.statusCode` and
+  `details.method` *are* available on `onCompleted` and are used (via
+  `isBodylessStatus()`) to tell a known-empty body from an unknown size; a
+  bodyless response's `Content-Length` is ignored.
 - `onCompleted` is **informational only** — it does not block, so it is cheap.
   Do not add `"blocking"` here.
 - `filterResponseData` requires `webRequestBlocking` + (MV3, FF110+)
@@ -86,24 +89,30 @@ Node 18+ is needed for tests only.
 ## Storage model
 
 One `storage.local` key per day: `day:YYYY-MM-DD`, plus a `settings` key. A day
-bucket is `{ [site]: { b, r, u, c, cb, d, dm, e, x, er, h: { [host]: {b,r,u,c,cb,d,dm,e,x,er} } } }`
+bucket is `{ [site]: { b, r, u, c, cb, d, dm, e, x, nb, er, h: { [host]: {b,r,u,c,cb,d,dm,e,x,nb,er} } } }`
 where `b`=wire bytes, `r`=requests, `u`=unknown wire size, `c`=cached, `cb`=bytes of
 those cached responses, `d`=decoded bytes (precise mode), `dm`=measured
 responses, `e`=failed requests (`webRequest.onErrorOccurred`; they may have moved
 bytes we can never see), `x`=responses precise mode tried but failed to measure,
-`er`=failure reason -> count (from `details.error`, so "why did requests fail" is
-answerable without the per-request log). A cached response's bytes always go to
-`cb`, never `b` — there is no toggle — so the wire total is always network-only.
-Aggregation (not per-request rows) bounds growth by days × sites × hosts. Writes
-are debounced (3 s) in `Collector` and also flushed on `runtime.onSuspend` and a
+`nb`=responses with a known-empty body (1xx/204/205/304, or a HEAD; a real zero,
+so excluded from `u`), `er`=failure reason -> count (from `details.error`, so "why
+did requests fail" is answerable without the per-request log). A cached response's
+bytes always go to `cb`, never `b` — there is no toggle — so the wire total is
+always network-only. A bodyless response's `Content-Length` (a 304's describes
+the cached copy) is dropped, never added to `b`. `details.statusCode` is read via
+`isBodylessStatus()` in `aggregate.js`; nothing else uses the status. Aggregation
+(not per-request rows) bounds growth by days × sites × hosts. Writes are
+debounced (3 s) in `Collector` and also flushed on `runtime.onSuspend` and a
 periodic alarm.
 
-`cb`/`d`/`dm`/`e`/`x`/`er` default to 0/{} in `emptyCounters()`, so day buckets
-written by older versions read back without migration.
+`cb`/`d`/`dm`/`e`/`x`/`nb`/`er` default to 0/{} in `emptyCounters()`, so day
+buckets written by older versions read back without migration.
 
 The **opt-in detailed request log** is a separate key space, `log:YYYY-MM-DD`
-(an array of one row per request/error: `{t, site, host, type, b, cb, c, d, e}`),
-written by `Store.appendLogs` and capped at `MAX_LOG_ENTRIES_PER_DAY`. It is
+(an array of one row per request/error: `{t, site, host, type, sc, b, cb, c, d, e, nb}`),
+written by `Store.appendLogs` and capped at `MAX_LOG_ENTRIES_PER_DAY`. `sc` is the
+HTTP status, kept so a bodyless 204/304 (empty `b`, `nb=1`) is distinguishable
+after the fact from a genuinely unknown size (`b` empty, `nb=0`). It is
 gated by `settings.requestLog` (default false) because its size grows with
 request volume where the aggregate buckets do not. `Store.listAllDates()` spans
 both key spaces so `prune`/`clearAll` remove a day's log and bucket together (a

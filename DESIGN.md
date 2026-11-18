@@ -62,12 +62,19 @@ and one per error, under `log:YYYY-MM-DD`:
   "site": "example.com",   // owning document (registrable domain)
   "host": "cdn.example.com", // serving host
   "type": "script",        // webRequest resource type
+  "sc": 200,               // HTTP status, null when unavailable
   "b": 2048,               // wire bytes (Content-Length), null when unknown
   "cb": null,              // cached bytes, null unless served from disk cache
   "c": 0,                  // 1 when served from disk cache
   "d": null,               // decoded bytes (precise mode), filled in later
+  "nb": 0,                 // 1 when the response had no body (204/304/…)
   "e": "" }                // error reason for a failed request, else ""
 ```
+
+The status code (`sc`) is what makes the size columns interpretable after the
+fact: a `204`/`304` with an empty `b` is a *known* zero, whereas an empty `b` on
+a `200` is a genuine unknown. A bodyless response sets `nb` so the two cases are
+never confused.
 
 A precise-mode measurement for a request is folded back onto that request's row
 (by `requestId`), so a chunked/streamed response shows its decoded total on the
@@ -187,11 +194,12 @@ Data is aggregated, not stored per request. Each calendar day is one
     "dm": 0,                       // responses that contributed a d measurement
     "e": 2,                        // requests that failed (onErrorOccurred)
     "x": 0,                        // precise-mode measurements that failed
+    "nb": 0,                       // responses with a known-empty body (204/304/…)
     "er": {                        // failure reasons -> count
       "NS_ERROR_NET_TIMEOUT": 2
     },
     "h": {                         // per serving-host breakdown
-      "cdn.example.com": { "b": 9437184, "r": 300, "u": 2, "c": 10, "cb": 262144, "d": 0, "dm": 0, "e": 1, "x": 0, "er": { "NS_ERROR_NET_TIMEOUT": 1 } }
+      "cdn.example.com": { "b": 9437184, "r": 300, "u": 2, "c": 10, "cb": 262144, "d": 0, "dm": 0, "e": 1, "x": 0, "nb": 0, "er": { "NS_ERROR_NET_TIMEOUT": 1 } }
     }
   }
 }
@@ -272,25 +280,35 @@ dashboard reads aggregate data from `storage` directly.
   so "which servers did this site actually pull from" is one click away.
 - Site filter (substring match + include/exclude the top N).
 - Sortable table: wire bytes (with bar), decoded bytes (precise mode only),
-  requests, unknown wire size count, cached count, cached bytes, errored count,
-  and unmeasured (precise-mode gap) count.
+  requests, unknown wire size count, empty-body count, cached count, cached
+  bytes, errored count, and unmeasured (precise-mode gap) count.
 - **Why requests failed** — a panel listing the error-reason histogram, so the
   errored count is explained rather than just shown.
 - Totals, including the share of responses that have a known wire size, and a
   **CSV export** of the current filtered view.
 - **Download detailed log** — the opt-in per-request log for the current range as
-  CSV (time, site, serving host, type, wire bytes, decoded bytes, cached, error),
-  for comparing the two byte metrics request by request.
+  CSV (time, site, serving host, type, status, wire bytes, cached bytes, decoded
+  bytes, cached, empty body, error), for comparing the two byte metrics request
+  by request.
 
 The popup shows today's wire total, today's decoded total when precise mode has
 measured anything, and the top few sites.
 
 ## Known limitations
 
-- Responses without `Content-Length` are counted as "unknown", not zero.
+- Responses without `Content-Length` are counted as "unknown", not zero. A
+  response with a **known-empty body** (1xx, 204, 205, 304, or any answer to a
+  HEAD) is the exception: its content size is a real zero, so it is counted as
+  known and not as a coverage gap. Any `Content-Length` a 304 carries describes
+  the cached representation and is never added to the wire total.
 - Failed or cancelled requests are counted as "errored", not zero: they may have
   transferred bytes we can never see.
-- Request headers, TLS, DNS, and QUIC overhead are not counted.
+- Request headers, TLS, DNS, and QUIC overhead are not counted. The totals are
+  **response bodies on the wire** (`Content-Length`), so they undercount the true
+  link usage by roughly the header/TLS overhead per request. For a per-app data
+  comparison, see the note on uplink and headers in README.
+- Outbound (upload) bytes are not counted at all: `Content-Length` on a response
+  describes only what was downloaded.
 - WebSocket payloads (only the handshake is visible), WebRTC media/data, and
   browser-internal traffic (telemetry, Sync, updates) never reach `webRequest`,
   so no extension can measure them. On Android these can dwarf measurable

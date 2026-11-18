@@ -73,14 +73,38 @@ headers and attributes it to the page's registrable domain. Details and caveats
 (compression, chunked responses with no length, cache, TLS/DNS overhead) are in
 [DESIGN.md](DESIGN.md). Responses with no `Content-Length` are counted in a
 separate **Unknown wire size** column rather than being treated as zero, so
-coverage gaps are visible. Responses served from disk cache moved no network
-bytes, so their count goes in a **Cached** column and their size in a separate
-**Cached bytes** column, never in the wire total. Requests that fail or are
-cancelled mid-flight are counted in an **Errors** column: they never reach
-`onCompleted`, so their transferred bytes cannot be attributed, and they are
-shown rather than silently dropped. The **Why requests failed** panel breaks
-those errors down by reason, so the cause (a timeout, an abort, a dropped
-connection) is visible, not just the count.
+coverage gaps are visible. Responses with a **known-empty body** — 1xx, 204, 205,
+304, or any answer to a HEAD — are the exception: their content really is zero
+bytes, so they go in an **Empty body** column and are not counted as a gap (a
+304's `Content-Length` describes the cached copy and is never added to the wire
+total). Responses served from disk cache moved no network bytes, so their count
+goes in a **Cached** column and their size in a separate **Cached bytes** column,
+never in the wire total. Requests that fail or are cancelled mid-flight are
+counted in an **Errors** column: they never reach `onCompleted`, so their
+transferred bytes cannot be attributed, and they are shown rather than silently
+dropped. The **Why requests failed** panel breaks those errors down by reason, so
+the cause (a timeout, an abort, a dropped connection) is visible, not just the
+count.
+
+### Matching a system data counter (headers and uploads)
+
+If you are comparing against Android's per-app "mobile data usage", two caveats
+matter, because those counters and this extension measure different things:
+
+- **Uploads count.** Android reports received *and* transmitted bytes separately
+  (`NetworkStats` has `getRxBytes()`/`getTxBytes()`), and its totals are measured
+  at the network layer, so they include **both directions** plus packet headers.
+  This extension reads only `Content-Length` from *responses*, so it is a
+  **download-body** figure: it excludes uploads entirely, and excludes request
+  headers, TLS, DNS and QUIC overhead.
+- **Header bytes.** Even an empty response moves a few hundred bytes of response
+  headers plus TLS records, and every request has a request-line and headers
+  going the other way. `webRequest` exposes no packet counts and no header sizes,
+  so this extension cannot measure them. As a rule of thumb, add roughly a
+  kilobyte per request (more for TLS handshakes) if you need a link-layer figure.
+
+So expect this extension's number to be **lower** than the system counter: it is
+response bodies only, not total link usage in both directions.
 
 ### Precise mode
 

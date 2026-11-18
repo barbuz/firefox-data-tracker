@@ -153,11 +153,15 @@ function render() {
   // Same for the coverage-gap columns: only shown when they have something to say.
   const showErrored = totals.errored > 0;
   const showUnmeasured = totals.unmeasured > 0;
+  // A bodyless response (204/304/…) is a known zero, not a gap; show the count
+  // only when it happened, so it reads as context rather than noise.
+  const showBodyless = totals.bodyless > 0;
   // Cached bytes are always recorded separately from the wire total; the column
   // only appears once there is something cached to show.
   const showCachedBytes = totals.cachedBytes > 0;
   $("colErrored").hidden = !showErrored;
   $("colUnmeasured").hidden = !showUnmeasured;
+  $("colBodyless").hidden = !showBodyless;
   $("colCachedBytes").hidden = !showCachedBytes;
 
   $("colKey").textContent = state.groupBy === "site" ? "Site" : "Serving host";
@@ -170,6 +174,7 @@ function render() {
   let summary =
     ` wire · ${totals.requests.toLocaleString()} requests` +
     (totals.unknown ? ` · ${totals.unknown.toLocaleString()} unknown wire size` : "") +
+    (totals.bodyless ? ` · ${totals.bodyless.toLocaleString()} empty body` : "") +
     (totals.cached ? ` · ${totals.cached.toLocaleString()} cached` : "") +
     (showCachedBytes ? ` (${formatBytes(totals.cachedBytes)})` : "") +
     (showErrored ? ` · ${totals.errored.toLocaleString()} failed` : "");
@@ -193,6 +198,7 @@ function render() {
     cachedBytes: showCachedBytes,
     errored: showErrored,
     unmeasured: showUnmeasured,
+    bodyless: showBodyless,
   };
   const expandable = state.groupBy === "site";
 
@@ -219,7 +225,8 @@ function render() {
 /** Number of visible table columns, used to span the note row correctly. */
 function columnCount(cols) {
   return 2 + 1 + (cols.decoded ? 1 : 0) + 1 + 3 +
-    (cols.cachedBytes ? 1 : 0) + (cols.errored ? 1 : 0) + (cols.unmeasured ? 1 : 0);
+    (cols.cachedBytes ? 1 : 0) + (cols.errored ? 1 : 0) +
+    (cols.unmeasured ? 1 : 0) + (cols.bodyless ? 1 : 0);
 }
 
 function rowElement(row, { index, cols, max, expandable = false, expanded = false, child = false }) {
@@ -243,6 +250,9 @@ function rowElement(row, { index, cols, max, expandable = false, expanded = fals
   }
   if (cols.unmeasured) {
     tr.appendChild(cell(row.unmeasured.toLocaleString(), "num"));
+  }
+  if (cols.bodyless) {
+    tr.appendChild(cell(row.bodyless.toLocaleString(), "num"));
   }
   return tr;
 }

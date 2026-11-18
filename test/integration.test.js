@@ -190,6 +190,51 @@ test("a cancelled download is visible as errored rather than silently missing", 
   assert.deepEqual(errorReasons([row]), [{ reason: "NS_ERROR_ABORT", count: 1 }]);
 });
 
+test("a bodyless 304 is a known zero, not an unknown-size gap", async () => {
+  const store = new Store(new FakeArea());
+  await store.setSettings({ requestLog: true });
+  const collector = new Collector({ store, getSettings: () => store.getSettings() });
+  await collector.init();
+
+  // A conditional request answered 304: no body was sent, and the Content-Length
+  // header it carries describes the cached representation, not the wire.
+  collector.handleCompleted(req({
+    type: "image",
+    url: "https://cdn.assets.net/hero.jpg",
+    requestId: "r1",
+    statusCode: 304,
+    responseHeaders: [{ name: "Content-Length", value: "500000" }],
+  }));
+  // A genuine unknown: chunked, 200, no length.
+  collector.handleCompleted(req({
+    type: "xmlhttprequest",
+    url: "https://stream.news.example/live",
+    requestId: "r2",
+    statusCode: 200,
+    responseHeaders: [],
+  }));
+  await collector.flush();
+
+  const days = await store.getDays(dateRange("2026-03-10", "2026-03-10"));
+  const row = aggregate(days, { groupBy: "site" }).find((r) => r.key === "news.example");
+  assert.equal(row.requests, 2);
+  assert.equal(row.bodyless, 1, "the 304 is a known-empty body");
+  assert.equal(row.unknown, 1, "only the chunked 200 is unknown");
+  assert.equal(row.bytes, 0, "the 304's cached Content-Length never becomes wire bytes");
+  // Coverage is 1 known of 2 countable responses; the 304 counts as known.
+  assert.equal(coverage(sumRows([row])), 0.5);
+
+  // The log carries the status so the two are distinguishable after the fact.
+  const entries = (await store.getLogs(dateRange("2026-03-10", "2026-03-10")))[0].entries;
+  const notModified = entries.find((e) => e.host === "cdn.assets.net");
+  assert.equal(notModified.sc, 304);
+  assert.equal(notModified.nb, 1);
+  assert.equal(notModified.b, null);
+  const unknown = entries.find((e) => e.host === "stream.news.example");
+  assert.equal(unknown.sc, 200);
+  assert.equal(unknown.nb, 0);
+});
+
 test("the detailed log lets wire and decoded usage be compared per request", async () => {
   const area = new FakeArea();
   const store = new Store(area);
@@ -220,9 +265,9 @@ test("the detailed log lets wire and decoded usage be compared per request", asy
   const failed = entries.find((e) => e.host === "ads.tracker.io");
   assert.equal(failed.e, "NS_ERROR_NET_TIMEOUT");
 
-  // The CSV export carries both byte columns and the error reason.
+  // The CSV export carries both byte columns, the status and the error reason.
   const csv = entriesToCsv(entries);
-  assert.ok(csv.startsWith("time,site,host,type,wire_bytes,cached_bytes,decoded_bytes,cached,error"));
+  assert.ok(csv.startsWith("time,site,host,type,status,wire_bytes,cached_bytes,decoded_bytes,cached,empty_body,error"));
   assert.ok(csv.includes("NS_ERROR_NET_TIMEOUT"));
 });
 

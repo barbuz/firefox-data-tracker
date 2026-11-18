@@ -4,6 +4,7 @@
 
 import {
   contentLengthFromHeaders,
+  isBodylessStatus,
   dateKey,
   accumulate,
   mergeDay,
@@ -40,8 +41,12 @@ export class Collector {
     // Skip speculative connections: no real tab and no meaningful payload.
     if (details.type === "speculative") return;
 
-    const bytes = contentLengthFromHeaders(details.responseHeaders);
     const fromCache = !!details.fromCache;
+    // A bodyless response (1xx/204/205/304, or a HEAD) has a known-empty body:
+    // any Content-Length it carries describes a representation that was never
+    // sent, so it is dropped rather than counted as wire bytes.
+    const bodyless = isBodylessStatus(details.statusCode, details.method);
+    const bytes = bodyless ? null : contentLengthFromHeaders(details.responseHeaders);
 
     const site = siteKeyForRequest(details);
     const host = servingHostForRequest(details);
@@ -49,8 +54,8 @@ export class Collector {
 
     const date = dateKey(details.timeStamp || Date.now());
     const day = (this.buffer[date] ||= {});
-    accumulate(day, { site, host, bytes, fromCache });
-    this.recordLog(date, details, { site, host, bytes });
+    accumulate(day, { site, host, bytes, fromCache, bodyless });
+    this.recordLog(date, details, { site, host, bytes, bodyless });
     this.requestFlush();
   }
 
@@ -59,7 +64,7 @@ export class Collector {
    * reference keyed by requestId so a precise-mode measurement arriving later can
    * fill in the decoded byte total for the same request.
    */
-  recordLog(date, details, { site, host, bytes }) {
+  recordLog(date, details, { site, host, bytes, bodyless }) {
     if (!this.settings?.requestLog) return;
     const entry = completedEntry({
       timeStamp: details.timeStamp || Date.now(),
@@ -68,6 +73,8 @@ export class Collector {
       type: details.type,
       bytes,
       fromCache: !!details.fromCache,
+      statusCode: details.statusCode,
+      bodyless,
     });
     (this.logBuffer[date] ||= []).push(entry);
     if (details.requestId) this.logIndex.set(details.requestId, entry);

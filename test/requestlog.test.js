@@ -33,6 +33,17 @@ test("completedEntry records an unknown size as null, not zero", () => {
   assert.equal(e.c, 1);
 });
 
+test("completedEntry records the status code and the bodyless flag", () => {
+  const e = completedEntry({ timeStamp: 0, site: "s", host: "h", type: "xmlhttprequest", bytes: null, fromCache: false, statusCode: 304, bodyless: true });
+  assert.equal(e.sc, 304);
+  assert.equal(e.nb, 1, "a bodyless response is flagged so it is not read as unknown-size");
+  assert.equal(e.b, null, "and it contributes no wire bytes");
+
+  const missing = completedEntry({ timeStamp: 0, site: "s", host: "h", type: "", bytes: 5, fromCache: false });
+  assert.equal(missing.sc, null, "an unavailable status is null, not 0");
+  assert.equal(missing.nb, 0);
+});
+
 test("completedEntry keeps cached bytes out of the wire column", () => {
   const e = completedEntry({ timeStamp: 0, site: "s", host: "h", type: "image", bytes: 4096, fromCache: true });
   assert.equal(e.b, null, "cached bytes never enter the wire column");
@@ -62,15 +73,15 @@ test("addDecoded accumulates decoded bytes onto the same row", () => {
 
 test("entriesToCsv emits a header and one row per entry with blanks for unknown sizes", () => {
   const rows = [
-    completedEntry({ timeStamp: Date.UTC(2026, 0, 5, 12, 0, 0), site: "example.com", host: "cdn.example.com", type: "script", bytes: 2048, fromCache: false }),
+    completedEntry({ timeStamp: Date.UTC(2026, 0, 5, 12, 0, 0), site: "example.com", host: "cdn.example.com", type: "script", bytes: 2048, fromCache: false, statusCode: 200 }),
     erroredEntry({ timeStamp: Date.UTC(2026, 0, 5, 12, 0, 1), site: "example.com", host: "ads.net", type: "image", reason: "NS_ERROR_ABORT" }),
   ];
   const lines = entriesToCsv(rows).split("\n");
-  assert.equal(lines[0], "time,site,host,type,wire_bytes,cached_bytes,decoded_bytes,cached,error");
+  assert.equal(lines[0], "time,site,host,type,status,wire_bytes,cached_bytes,decoded_bytes,cached,empty_body,error");
   assert.equal(lines.length, 3);
-  assert.ok(lines[1].startsWith("2026-01-05T12:00:00.000Z,example.com,cdn.example.com,script,2048,,,no,"));
-  // Errored row: no wire bytes (blank), reason present.
-  assert.ok(lines[2].endsWith(",ads.net,image,,,,no,NS_ERROR_ABORT"));
+  assert.ok(lines[1].startsWith("2026-01-05T12:00:00.000Z,example.com,cdn.example.com,script,200,2048,,,no,no,"));
+  // Errored row: no status, no wire bytes (blank), reason present.
+  assert.ok(lines[2].endsWith(",ads.net,image,,,,,no,no,NS_ERROR_ABORT"));
 });
 
 test("entriesToCsv escapes commas and quotes in fields", () => {
