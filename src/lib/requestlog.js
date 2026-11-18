@@ -26,18 +26,24 @@
  * Keys are short because there can be many rows; the serializers below expand
  * them to readable column names.
  */
-export function completedEntry({ timeStamp, site, host, type, bytes, fromCache }) {
+export function completedEntry({ timeStamp, site, host, type, bytes, fromCache, statusCode, bodyless }) {
   const size = bytes == null ? null : bytes;
   return {
     t: timeStamp,
     site,
     host,
     type: type || "",
+    // The HTTP status, so the log can distinguish a bodyless 204/304 from a
+    // response whose size is genuinely unknown. null when unavailable.
+    sc: Number.isFinite(statusCode) ? statusCode : null,
     b: fromCache ? null : size,
     cb: fromCache ? size : null,
     c: fromCache ? 1 : 0,
     d: null,
     e: "",
+    // A known-empty body (1xx/204/205/304, or HEAD). Distinct from an unknown
+    // size: the body really is zero bytes, not merely unmeasured.
+    nb: bodyless ? 1 : 0,
   };
 }
 
@@ -52,11 +58,13 @@ export function erroredEntry({ timeStamp, site, host, type, reason }) {
     site,
     host,
     type: type || "",
+    sc: null,
     b: null,
     cb: null,
     c: 0,
     d: null,
     e: reason || "unknown",
+    nb: 0,
   };
 }
 
@@ -66,7 +74,7 @@ export function addDecoded(entry, decodedBytes) {
   return entry;
 }
 
-const CSV_HEADER = "time,site,host,type,wire_bytes,cached_bytes,decoded_bytes,cached,error";
+const CSV_HEADER = "time,site,host,type,status,wire_bytes,cached_bytes,decoded_bytes,cached,empty_body,error";
 
 /** Serialize log rows to CSV. Null sizes (unknown / errored) render as empty. */
 export function entriesToCsv(entries) {
@@ -76,10 +84,12 @@ export function entriesToCsv(entries) {
       csvCell(e.site),
       csvCell(e.host),
       csvCell(e.type),
+      e.sc == null ? "" : e.sc,
       e.b == null ? "" : e.b,
       e.cb == null ? "" : e.cb,
       e.d == null ? "" : e.d,
       e.c ? "yes" : "no",
+      e.nb ? "yes" : "no",
       csvCell(e.e || ""),
     ].join(",")
   );

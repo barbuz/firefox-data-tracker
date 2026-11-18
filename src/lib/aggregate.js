@@ -22,6 +22,25 @@ export function contentLengthFromHeaders(headers) {
   return null;
 }
 
+/**
+ * Whether a response carries no body, so its transferred content size is a
+ * *known* zero rather than an unknown.
+ *
+ * Per RFC 9110 the 1xx, 204 and 205 responses, and any response to a HEAD
+ * request, end at the header section. A 304 (Not Modified) likewise has no body
+ * — and crucially it may carry a `Content-Length` describing the *cached*
+ * representation, which was never sent, so that header must not be read as wire
+ * bytes. Treating these as known-zero keeps them out of the "unknown wire size"
+ * gap (they are not missing data) without letting a misleading `Content-Length`
+ * inflate the total.
+ */
+export function isBodylessStatus(statusCode, method) {
+  if (method === "HEAD") return true;
+  if (!Number.isFinite(statusCode)) return false;
+  if (statusCode >= 100 && statusCode < 200) return true;
+  return statusCode === 204 || statusCode === 205 || statusCode === 304;
+}
+
 function emptyCounters() {
   // b: wire bytes (Content-Length) that crossed the network, r: requests,
   // u: unknown-size responses, c: disk-cache hits (a count, excluded from b),
@@ -32,9 +51,12 @@ function emptyCounters() {
   //    transferred bytes we can never see, so they are a known blind spot,
   // x: responses precise mode tried but failed to measure (filter could not be
   //    attached, or was torn down before any bytes arrived),
+  // nb: responses with a known-empty body (1xx/204/205/304, or a HEAD request).
+  //    Their content size is a real zero, not an unknown, so they are excluded
+  //    from `u`; they still moved header bytes, which are out of scope.
   // er: failure reasons -> count, so "why did requests fail" is answerable
   //    without storing a row per request (defaults to {} for old buckets).
-  return { b: 0, r: 0, u: 0, c: 0, cb: 0, d: 0, dm: 0, e: 0, x: 0, er: {} };
+  return { b: 0, r: 0, u: 0, c: 0, cb: 0, d: 0, dm: 0, e: 0, x: 0, nb: 0, er: {} };
 }
 
 /**
@@ -56,6 +78,11 @@ function emptyCounters() {
  * @param {boolean} [entry.measured]     true on the first measurement of a response
  * @param {boolean} [entry.unmeasured]   true when precise mode tried and failed to
  *        measure this response (filter not attached, or torn down early)
+ * @param {boolean} [entry.bodyless]     true when the response has a known-empty
+ *        body (1xx/204/205/304, or a HEAD request). Its size is a real zero, so
+ *        it is counted in `nb` instead of the unknown-size `u`; any
+ *        `Content-Length` it carries describes a representation that was never
+ *        sent and is ignored.
  * @param {boolean} [entry.errored]      true for a request that failed
  *        (webRequest.onErrorOccurred); it has no known size and may have
  *        transferred unseen bytes
@@ -74,6 +101,7 @@ export function accumulate(day, {
   decoded = null,
   measured = false,
   unmeasured = false,
+  bodyless = false,
   errored = false,
   errorReason = null,
   countRequest = true,
@@ -113,6 +141,10 @@ export function accumulate(day, {
     s.x += 1;
     if (h) h.x += 1;
   }
+  if (bodyless) {
+    s.nb += 1;
+    if (h) h.nb += 1;
+  }
   if (decoded != null && decoded > 0) {
     s.d += decoded;
     if (h) h.d += decoded;
@@ -132,6 +164,11 @@ export function accumulate(day, {
     }
     return day;
   }
+
+  // A known-empty body is a real zero, not an unknown: it contributes no bytes
+  // and must not be counted as a coverage gap. Any Content-Length it carries
+  // (a 304's is the cached size) describes bytes that were never sent.
+  if (bodyless) return day;
 
   if (bytes == null) {
     s.u += 1;
@@ -163,6 +200,7 @@ export function mergeDay(target, source) {
     t.b += s.b || 0; t.r += s.r || 0; t.u += s.u || 0; t.c += s.c || 0;
     t.cb += s.cb || 0;
     t.d += s.d || 0; t.dm += s.dm || 0; t.e += s.e || 0; t.x += s.x || 0;
+    t.nb += s.nb || 0;
     mergeReasons(t, s.er);
     for (const [host, h] of Object.entries(s.h || {})) {
       let th = t.h[host];
@@ -170,6 +208,7 @@ export function mergeDay(target, source) {
       th.b += h.b || 0; th.r += h.r || 0; th.u += h.u || 0; th.c += h.c || 0;
       th.cb += h.cb || 0;
       th.d += h.d || 0; th.dm += h.dm || 0; th.e += h.e || 0; th.x += h.x || 0;
+      th.nb += h.nb || 0;
       mergeReasons(th, h.er);
     }
   }
@@ -191,7 +230,7 @@ function structuredCloneDay(day) {
     }
     out[site] = {
       b: s.b, r: s.r, u: s.u, c: s.c, cb: s.cb || 0,
-      d: s.d || 0, dm: s.dm || 0, e: s.e || 0, x: s.x || 0,
+      d: s.d || 0, dm: s.dm || 0, e: s.e || 0, x: s.x || 0, nb: s.nb || 0,
       er: { ...(s.er || {}) }, h,
     };
   }
@@ -260,7 +299,7 @@ export function hostBreakdown(days, site) {
 
 function addRow(map, key, c) {
   let row = map.get(key);
-  if (!row) row = { bytes: 0, requests: 0, unknown: 0, cached: 0, cachedBytes: 0, decoded: 0, measured: 0, errored: 0, unmeasured: 0, reasons: {} };
+  if (!row) row = { bytes: 0, requests: 0, unknown: 0, cached: 0, cachedBytes: 0, decoded: 0, measured: 0, errored: 0, unmeasured: 0, bodyless: 0, reasons: {} };
   row.bytes += c.b;
   row.requests += c.r;
   row.unknown += c.u;
@@ -270,6 +309,7 @@ function addRow(map, key, c) {
   row.measured += c.dm || 0;
   row.errored += c.e || 0;
   row.unmeasured += c.x || 0;
+  row.bodyless += c.nb || 0;
   for (const [reason, n] of Object.entries(c.er || {})) {
     row.reasons[reason] = (row.reasons[reason] || 0) + n;
   }
@@ -289,8 +329,9 @@ export function sumRows(rows) {
       measured: acc.measured + (r.measured || 0),
       errored: acc.errored + (r.errored || 0),
       unmeasured: acc.unmeasured + (r.unmeasured || 0),
+      bodyless: acc.bodyless + (r.bodyless || 0),
     }),
-    { bytes: 0, requests: 0, unknown: 0, cached: 0, cachedBytes: 0, decoded: 0, measured: 0, errored: 0, unmeasured: 0 }
+    { bytes: 0, requests: 0, unknown: 0, cached: 0, cachedBytes: 0, decoded: 0, measured: 0, errored: 0, unmeasured: 0, bodyless: 0 }
   );
 }
 
@@ -350,7 +391,7 @@ export function formatBytes(n) {
 
 /** Build a CSV document from aggregate() rows. */
 export function rowsToCsv(rows) {
-  const header = "key,bytes,decoded_bytes,requests,unknown_size,cached,cached_bytes,decoded_measured,errored,unmeasured";
+  const header = "key,bytes,decoded_bytes,requests,unknown_size,empty_body,cached,cached_bytes,decoded_measured,errored,unmeasured";
   const lines = rows.map((r) =>
     [
       csvCell(r.key),
@@ -358,6 +399,7 @@ export function rowsToCsv(rows) {
       r.decoded || 0,
       r.requests,
       r.unknown,
+      r.bodyless || 0,
       r.cached,
       r.cachedBytes || 0,
       r.measured || 0,

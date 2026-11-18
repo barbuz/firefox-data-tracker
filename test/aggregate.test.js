@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   dateKey,
   contentLengthFromHeaders,
+  isBodylessStatus,
   accumulate,
   mergeDay,
   aggregate,
@@ -53,6 +54,49 @@ test("accumulate ignores requests with no attributable site", () => {
   const day = {};
   accumulate(day, { site: "", host: "x", bytes: 10, fromCache: false });
   assert.deepEqual(day, {});
+});
+
+test("isBodylessStatus recognises the bodyless statuses and HEAD", () => {
+  assert.equal(isBodylessStatus(204), true);
+  assert.equal(isBodylessStatus(205), true);
+  assert.equal(isBodylessStatus(304), true);
+  assert.equal(isBodylessStatus(100), true, "1xx informational");
+  assert.equal(isBodylessStatus(199), true);
+  assert.equal(isBodylessStatus(200, "HEAD"), true, "a HEAD response has no body");
+  assert.equal(isBodylessStatus(200), false);
+  assert.equal(isBodylessStatus(206), false, "a partial response does have a body");
+  assert.equal(isBodylessStatus(301), false, "a redirect can carry a body");
+  assert.equal(isBodylessStatus(undefined), false);
+});
+
+test("accumulate counts a bodyless response as a known zero, not an unknown", () => {
+  const day = {};
+  // A 304 may carry the cached Content-Length; it must not become wire bytes,
+  // and it must not be counted as an unknown-size gap either.
+  accumulate(day, { site: "example.com", host: "cdn.example.com", bytes: null, fromCache: false, bodyless: true });
+
+  const s = day["example.com"];
+  assert.equal(s.r, 1, "it is still a request");
+  assert.equal(s.nb, 1, "counted as a known-empty body");
+  assert.equal(s.u, 0, "not an unknown-size gap");
+  assert.equal(s.b, 0, "and no bytes are attributed");
+  assert.equal(s.h["cdn.example.com"].nb, 1);
+
+  // Coverage treats it as known: it is not a blind spot.
+  assert.equal(coverage({ requests: 1, unknown: 0, cached: 0, errored: 0 }), 1);
+});
+
+test("mergeDay and the row builders carry the bodyless counter", () => {
+  const day = {};
+  accumulate(day, { site: "example.com", host: "h", bytes: null, fromCache: false, bodyless: true });
+  accumulate(day, { site: "example.com", host: "h", bytes: null, fromCache: false, bodyless: true });
+
+  const merged = mergeDay(mergeDay({}, day), day);
+  assert.equal(merged["example.com"].nb, 4);
+
+  const rows = aggregate([{ date: "2026-01-01", data: day }], { groupBy: "site" });
+  assert.equal(rows[0].bodyless, 2);
+  assert.equal(sumRows(rows).bodyless, 2);
 });
 
 test("accumulate counts errored requests as a request with no known size", () => {
@@ -216,7 +260,7 @@ test("sumRows totals the aggregate output", () => {
     { key: "b", bytes: 50, requests: 1, unknown: 1, cached: 0, cachedBytes: 0, decoded: 0, measured: 0, errored: 1, unmeasured: 2 },
   ];
   assert.deepEqual(sumRows(rows), {
-    bytes: 150, requests: 3, unknown: 1, cached: 1, cachedBytes: 40, decoded: 30, measured: 1, errored: 1, unmeasured: 2,
+    bytes: 150, requests: 3, unknown: 1, cached: 1, cachedBytes: 40, decoded: 30, measured: 1, errored: 1, unmeasured: 2, bodyless: 0,
   });
 });
 
@@ -266,9 +310,9 @@ test("formatBytes uses binary units", () => {
 
 test("rowsToCsv escapes commas and quotes", () => {
   const csv = rowsToCsv([
-    { key: 'a,"b"', bytes: 1, decoded: 9, requests: 2, unknown: 3, cached: 4, cachedBytes: 8, measured: 5, errored: 6, unmeasured: 7 },
+    { key: 'a,"b"', bytes: 1, decoded: 9, requests: 2, unknown: 3, bodyless: 11, cached: 4, cachedBytes: 8, measured: 5, errored: 6, unmeasured: 7 },
   ]);
   const lines = csv.split("\n");
-  assert.equal(lines[0], "key,bytes,decoded_bytes,requests,unknown_size,cached,cached_bytes,decoded_measured,errored,unmeasured");
-  assert.equal(lines[1], '"a,""b""",1,9,2,3,4,8,5,6,7');
+  assert.equal(lines[0], "key,bytes,decoded_bytes,requests,unknown_size,empty_body,cached,cached_bytes,decoded_measured,errored,unmeasured");
+  assert.equal(lines[1], '"a,""b""",1,9,2,3,11,4,8,5,6,7');
 });
