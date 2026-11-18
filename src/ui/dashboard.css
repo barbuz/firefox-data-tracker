@@ -64,6 +64,12 @@ button[data-preset] { padding: 6px 10px; }
 
 .presets { display: flex; gap: 6px; }
 
+.reasons { padding: 12px 20px; border-bottom: 1px solid var(--border); background: rgba(255, 255, 255, 0.02); }
+.reasons h2 { font-size: 13px; margin: 0 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.reasons ul { list-style: none; margin: 0; padding: 0; max-width: 60ch; }
+.reasons li { display: flex; justify-content: space-between; gap: 16px; padding: 3px 0; font-variant-numeric: tabular-nums; }
+.reasons li .num { color: var(--muted); }
+
 main { padding: 16px 20px 40px; }
 
 table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
@@ -73,6 +79,28 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: upp
 td.num, th.num { white-space: nowrap; }
 
 tr:hover td { background: rgba(255, 255, 255, 0.04); }
+
+/* Site rows are clickable to reveal their per-host breakdown. The button is
+   unstyled chrome so the row still reads as a table row, not a toolbar. */
+.row-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.row-toggle:hover { color: var(--accent); }
+.row-toggle .chevron { color: var(--muted); font-size: 11px; width: 10px; }
+
+.host-row td { background: rgba(255, 255, 255, 0.015); }
+.host-row:hover td { background: rgba(255, 255, 255, 0.05); }
+.host-key { padding-left: 28px; color: var(--muted); }
+.host-key.note { font-style: italic; }
 
 .bar-col { width: 120px; }
 .meter { height: 8px; border-radius: 4px; background: var(--accent); min-width: 2px; }

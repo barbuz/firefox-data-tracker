@@ -23,14 +23,18 @@ export function contentLengthFromHeaders(headers) {
 }
 
 function emptyCounters() {
-  // b: wire bytes (Content-Length), r: requests, u: unknown-size responses,
-  // c: disk-cache hits, d: decoded bytes measured by a stream filter,
+  // b: wire bytes (Content-Length) that crossed the network, r: requests,
+  // u: unknown-size responses, c: disk-cache hits (a count, excluded from b),
+  // cb: bytes of the cached responses (always recorded, never added to b),
+  // d: decoded bytes measured by a stream filter,
   // dm: responses that contributed a decoded measurement,
   // e: requests that failed (webRequest.onErrorOccurred) — they may have
   //    transferred bytes we can never see, so they are a known blind spot,
   // x: responses precise mode tried but failed to measure (filter could not be
-  //    attached, or was torn down before any bytes arrived).
-  return { b: 0, r: 0, u: 0, c: 0, d: 0, dm: 0, e: 0, x: 0 };
+  //    attached, or was torn down before any bytes arrived),
+  // er: failure reasons -> count, so "why did requests fail" is answerable
+  //    without storing a row per request (defaults to {} for old buckets).
+  return { b: 0, r: 0, u: 0, c: 0, cb: 0, d: 0, dm: 0, e: 0, x: 0, er: {} };
 }
 
 /**
@@ -41,12 +45,13 @@ function emptyCounters() {
  * has no Content-Length, so returning early first would discard the very
  * measurement that makes it visible.
  *
- * @param {object} day        day bucket: { [site]: {b,r,u,c,d,dm,h:{...}} }
+ * @param {object} day        day bucket: { [site]: {b,r,u,c,cb,d,dm,h:{...}} }
  * @param {object} entry
  * @param {string} entry.site   registrable domain of the owning document
  * @param {string} entry.host   serving host
  * @param {number|null} entry.bytes  wire body size, or null when unknown
- * @param {boolean} entry.fromCache  whether the response came from disk cache
+ * @param {boolean} entry.fromCache  whether the response came from disk cache;
+ *        its bytes go to the separate `cb` counter and never to `b`
  * @param {number|null} [entry.decoded]  decoded bytes measured for this response
  * @param {boolean} [entry.measured]     true on the first measurement of a response
  * @param {boolean} [entry.unmeasured]   true when precise mode tried and failed to
@@ -54,6 +59,8 @@ function emptyCounters() {
  * @param {boolean} [entry.errored]      true for a request that failed
  *        (webRequest.onErrorOccurred); it has no known size and may have
  *        transferred unseen bytes
+ * @param {string} [entry.errorReason]   the failure reason for an errored request,
+ *        folded into a per-bucket histogram so the causes are visible
  * @param {boolean} [entry.countRequest] false when the caller already counted the
  *        request (a stream measurement is a second event for the same request)
  * @param {boolean} [entry.wireAccounting] false to fold only the decoded bytes,
@@ -68,6 +75,7 @@ export function accumulate(day, {
   measured = false,
   unmeasured = false,
   errored = false,
+  errorReason = null,
   countRequest = true,
   wireAccounting = true,
 }) {
@@ -87,6 +95,8 @@ export function accumulate(day, {
     }
     s.e += 1;
     if (h) h.e += 1;
+    recordReason(s, errorReason);
+    if (h) recordReason(h, errorReason);
     return day;
   }
 
@@ -111,9 +121,15 @@ export function accumulate(day, {
   if (!wireAccounting) return day;
 
   if (fromCache) {
-    // Served from disk cache: no bytes crossed the network.
+    // Served from disk cache: no bytes crossed the network, so this is counted
+    // separately. The bytes are still recorded (in `cb`) so the cached volume is
+    // visible without being mixed into the network total `b`.
     s.c += 1;
     if (h) h.c += 1;
+    if (bytes != null && bytes > 0) {
+      s.cb += bytes;
+      if (h) h.cb += bytes;
+    }
     return day;
   }
 
@@ -128,6 +144,12 @@ export function accumulate(day, {
   return day;
 }
 
+/** Fold an error reason into a counters object's reason histogram. */
+function recordReason(counters, reason) {
+  const key = reason || "unknown";
+  counters.er[key] = (counters.er[key] || 0) + 1;
+}
+
 /**
  * Merge a freshly collected day bucket into a stored one, returning a new
  * object. Used when flushing the in-memory buffer into storage so we never lose
@@ -139,23 +161,39 @@ export function mergeDay(target, source) {
     let t = out[site];
     if (!t) t = out[site] = { ...emptyCounters(), h: {} };
     t.b += s.b || 0; t.r += s.r || 0; t.u += s.u || 0; t.c += s.c || 0;
+    t.cb += s.cb || 0;
     t.d += s.d || 0; t.dm += s.dm || 0; t.e += s.e || 0; t.x += s.x || 0;
+    mergeReasons(t, s.er);
     for (const [host, h] of Object.entries(s.h || {})) {
       let th = t.h[host];
       if (!th) th = t.h[host] = emptyCounters();
       th.b += h.b || 0; th.r += h.r || 0; th.u += h.u || 0; th.c += h.c || 0;
+      th.cb += h.cb || 0;
       th.d += h.d || 0; th.dm += h.dm || 0; th.e += h.e || 0; th.x += h.x || 0;
+      mergeReasons(th, h.er);
     }
   }
   return out;
+}
+
+function mergeReasons(target, source) {
+  for (const [reason, n] of Object.entries(source || {})) {
+    target.er[reason] = (target.er[reason] || 0) + (n || 0);
+  }
 }
 
 function structuredCloneDay(day) {
   const out = {};
   for (const [site, s] of Object.entries(day)) {
     const h = {};
-    for (const [host, c] of Object.entries(s.h || {})) h[host] = { ...emptyCounters(), ...c };
-    out[site] = { b: s.b, r: s.r, u: s.u, c: s.c, d: s.d || 0, dm: s.dm || 0, e: s.e || 0, x: s.x || 0, h };
+    for (const [host, c] of Object.entries(s.h || {})) {
+      h[host] = { ...emptyCounters(), ...c, er: { ...(c.er || {}) } };
+    }
+    out[site] = {
+      b: s.b, r: s.r, u: s.u, c: s.c, cb: s.cb || 0,
+      d: s.d || 0, dm: s.dm || 0, e: s.e || 0, x: s.x || 0,
+      er: { ...(s.er || {}) }, h,
+    };
   }
   return out;
 }
@@ -169,7 +207,7 @@ function structuredCloneDay(day) {
  * @param {"site"|"host"} opts.groupBy
  * @param {string} [opts.siteFilter]      substring match on the site name
  * @param {number} [opts.topSites]        when >0, restrict to the N largest sites
- * @returns {Array<{key:string, bytes:number, requests:number, unknown:number, cached:number}>}
+ * @returns {Array<{key:string, bytes:number, requests:number, unknown:number, cached:number, cachedBytes:number}>}
  */
 export function aggregate(days, opts = {}) {
   const { groupBy = "site", siteFilter = "", topSites = 0 } = opts;
@@ -196,17 +234,45 @@ export function aggregate(days, opts = {}) {
   return rows;
 }
 
+/**
+ * Per-host breakdown for a single site, as rows shaped like aggregate()'s, so
+ * the dashboard can show what a site's total is made of (which servers actually
+ * served the bytes).
+ *
+ * No site filter here: the caller only expands sites that already passed the
+ * filter in aggregate(), and this must list every host behind such a site.
+ *
+ * @param {Array<{date:string, data:object}>} days
+ * @param {string} site
+ * @returns {Array<{key:string, bytes:number, requests:number, unknown:number, cached:number, cachedBytes:number}>}
+ */
+export function hostBreakdown(days, site) {
+  const totals = new Map();
+  for (const { data } of days) {
+    const s = data && data[site];
+    if (!s) continue;
+    for (const [host, h] of Object.entries(s.h || {})) addRow(totals, host, h);
+  }
+  const rows = [...totals.entries()].map(([key, v]) => ({ key, ...v }));
+  rows.sort((a, b) => b.bytes - a.bytes);
+  return rows;
+}
+
 function addRow(map, key, c) {
   let row = map.get(key);
-  if (!row) row = { bytes: 0, requests: 0, unknown: 0, cached: 0, decoded: 0, measured: 0, errored: 0, unmeasured: 0 };
+  if (!row) row = { bytes: 0, requests: 0, unknown: 0, cached: 0, cachedBytes: 0, decoded: 0, measured: 0, errored: 0, unmeasured: 0, reasons: {} };
   row.bytes += c.b;
   row.requests += c.r;
   row.unknown += c.u;
   row.cached += c.c;
+  row.cachedBytes += c.cb || 0;
   row.decoded += c.d || 0;
   row.measured += c.dm || 0;
   row.errored += c.e || 0;
   row.unmeasured += c.x || 0;
+  for (const [reason, n] of Object.entries(c.er || {})) {
+    row.reasons[reason] = (row.reasons[reason] || 0) + n;
+  }
   map.set(key, row);
 }
 
@@ -218,13 +284,31 @@ export function sumRows(rows) {
       requests: acc.requests + r.requests,
       unknown: acc.unknown + r.unknown,
       cached: acc.cached + r.cached,
+      cachedBytes: acc.cachedBytes + (r.cachedBytes || 0),
       decoded: acc.decoded + (r.decoded || 0),
       measured: acc.measured + (r.measured || 0),
       errored: acc.errored + (r.errored || 0),
       unmeasured: acc.unmeasured + (r.unmeasured || 0),
     }),
-    { bytes: 0, requests: 0, unknown: 0, cached: 0, decoded: 0, measured: 0, errored: 0, unmeasured: 0 }
+    { bytes: 0, requests: 0, unknown: 0, cached: 0, cachedBytes: 0, decoded: 0, measured: 0, errored: 0, unmeasured: 0 }
   );
+}
+
+/**
+ * Flatten the error-reason histograms of a set of aggregate() rows into a
+ * descending list of { reason, count }. This is what turns the single `errored`
+ * count into an answer to "what are the main reasons for errors".
+ */
+export function errorReasons(rows) {
+  const totals = new Map();
+  for (const r of rows) {
+    for (const [reason, n] of Object.entries(r.reasons || {})) {
+      totals.set(reason, (totals.get(reason) || 0) + n);
+    }
+  }
+  return [...totals.entries()]
+    .map(([reason, count]) => ({ reason, count }))
+    .sort((a, b) => b.count - a.count);
 }
 
 /**
@@ -266,7 +350,7 @@ export function formatBytes(n) {
 
 /** Build a CSV document from aggregate() rows. */
 export function rowsToCsv(rows) {
-  const header = "key,bytes,decoded_bytes,requests,unknown_size,cached,decoded_measured,errored,unmeasured";
+  const header = "key,bytes,decoded_bytes,requests,unknown_size,cached,cached_bytes,decoded_measured,errored,unmeasured";
   const lines = rows.map((r) =>
     [
       csvCell(r.key),
@@ -275,6 +359,7 @@ export function rowsToCsv(rows) {
       r.requests,
       r.unknown,
       r.cached,
+      r.cachedBytes || 0,
       r.measured || 0,
       r.errored || 0,
       r.unmeasured || 0,

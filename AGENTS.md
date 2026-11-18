@@ -39,9 +39,17 @@ Node 18+ is needed for tests only.
 - `onErrorOccurred` is a separate event from `onCompleted`. A request that fails
   or is cancelled mid-flight never fires `onCompleted`, so without this listener
   its (possibly large) transferred bytes vanish entirely. It is counted as a
-  request and flagged `errored`, never as known-size.
+  request and flagged `errored`, never as known-size. Its `details.error` is
+  folded into the `er` reason histogram (always on) and, when the opt-in log is
+  on, into a per-request log row.
+- `src/lib/requestlog.js` builds the opt-in per-request rows and serializes them
+  to CSV. `Collector` keeps a `requestId -> row` index so a precise-mode
+  measurement lands on the same row as its request; the index is cleared on every
+  flush so it cannot grow unbounded.
 - `src/ui/dashboard.*` is the `options_ui` page (opened in a tab). `src/ui/popup.*`
-  is the toolbar action.
+  is the toolbar action. In the site view, a dashboard row expands (click) into
+  its per-host breakdown via `hostBreakdown()` — the per-host `h` map is already
+  stored, so this needs no extra data, only a second aggregation pass.
 
 ## Key facts that shaped the code (verified against MDN/BCD)
 
@@ -65,8 +73,9 @@ Node 18+ is needed for tests only.
   delivering the response. All of this lives in `lib/streams.js`.
 - `details.documentUrl` is **undefined for top-level documents**; fall back to
   the request URL there.
-- Cached responses (`details.fromCache`) transferred no network bytes; excluded
-  from totals, counted in a separate `c` counter.
+- Cached responses (`details.fromCache`) transferred no network bytes; never
+  added to the wire total `b`. Their count goes to `c` and their size to `cb`,
+  always (there is no setting).
 - `details.type === "speculative"` requests have unreliable tab info; skipped.
 - No `tabs` permission is needed (`webRequest` provides `tabId`).
 - `background.type: "module"` requires Firefox 112+, hence a module background.
@@ -77,17 +86,28 @@ Node 18+ is needed for tests only.
 ## Storage model
 
 One `storage.local` key per day: `day:YYYY-MM-DD`, plus a `settings` key. A day
-bucket is `{ [site]: { b, r, u, c, d, dm, e, x, h: { [host]: {b,r,u,c,d,dm,e,x} } } }`
-where `b`=wire bytes, `r`=requests, `u`=unknown size, `c`=cached, `d`=decoded
-bytes (precise mode), `dm`=measured responses, `e`=failed requests
-(`webRequest.onErrorOccurred`; they may have moved bytes we can never see),
-`x`=responses precise mode tried but failed to measure. Aggregation (not
-per-request rows) bounds growth by days × sites × hosts. Writes are debounced
-(3 s) in `Collector` and also flushed on `runtime.onSuspend` and a periodic
-alarm.
+bucket is `{ [site]: { b, r, u, c, cb, d, dm, e, x, er, h: { [host]: {b,r,u,c,cb,d,dm,e,x,er} } } }`
+where `b`=wire bytes, `r`=requests, `u`=unknown wire size, `c`=cached, `cb`=bytes of
+those cached responses, `d`=decoded bytes (precise mode), `dm`=measured
+responses, `e`=failed requests (`webRequest.onErrorOccurred`; they may have moved
+bytes we can never see), `x`=responses precise mode tried but failed to measure,
+`er`=failure reason -> count (from `details.error`, so "why did requests fail" is
+answerable without the per-request log). A cached response's bytes always go to
+`cb`, never `b` — there is no toggle — so the wire total is always network-only.
+Aggregation (not per-request rows) bounds growth by days × sites × hosts. Writes
+are debounced (3 s) in `Collector` and also flushed on `runtime.onSuspend` and a
+periodic alarm.
 
-`d`/`dm`/`e`/`x` default to 0 in `emptyCounters()`, so day buckets written by
-older versions read back without migration.
+`cb`/`d`/`dm`/`e`/`x`/`er` default to 0/{} in `emptyCounters()`, so day buckets
+written by older versions read back without migration.
+
+The **opt-in detailed request log** is a separate key space, `log:YYYY-MM-DD`
+(an array of one row per request/error: `{t, site, host, type, b, cb, c, d, e}`),
+written by `Store.appendLogs` and capped at `MAX_LOG_ENTRIES_PER_DAY`. It is
+gated by `settings.requestLog` (default false) because its size grows with
+request volume where the aggregate buckets do not. `Store.listAllDates()` spans
+both key spaces so `prune`/`clearAll` remove a day's log and bucket together (a
+day can have a log with no bucket, so pruning off `listDates()` alone leaks it).
 
 When changing the storage shape, update `mergeDay`/`accumulate` in
 `lib/aggregate.js` and the tests together.

@@ -7,11 +7,13 @@ import {
   accumulate,
   mergeDay,
   aggregate,
+  hostBreakdown,
   sumRows,
   dateRange,
   formatBytes,
   rowsToCsv,
   coverage,
+  errorReasons,
 } from "../src/lib/aggregate.js";
 
 test("dateKey formats local calendar dates", () => {
@@ -40,9 +42,11 @@ test("accumulate folds requests, bytes, unknown and cached", () => {
   assert.equal(s.r, 4);
   assert.equal(s.u, 1);
   assert.equal(s.c, 1);
+  assert.equal(s.cb, 9999, "cached bytes are recorded in their own field");
   assert.equal(s.h["cdn.example.com"].b, 1500);
   assert.equal(s.h["example.com"].c, 1);
-  assert.equal(s.h["example.com"].b, 0, "cached bytes are not counted");
+  assert.equal(s.h["example.com"].cb, 9999, "per-host cached bytes too");
+  assert.equal(s.h["example.com"].b, 0, "cached bytes never enter the network total");
 });
 
 test("accumulate ignores requests with no attributable site", () => {
@@ -61,6 +65,46 @@ test("accumulate counts errored requests as a request with no known size", () =>
   assert.equal(s.b, 0, "no wire bytes are attributed");
   assert.equal(s.u, 0, "it is not also an unknown-size response");
   assert.equal(s.h["cdn.example.com"].e, 1);
+});
+
+test("accumulate records an error reason histogram per site and host", () => {
+  const day = {};
+  accumulate(day, { site: "example.com", host: "cdn.example.com", bytes: null, fromCache: false, errored: true, errorReason: "NS_ERROR_NET_TIMEOUT" });
+  accumulate(day, { site: "example.com", host: "cdn.example.com", bytes: null, fromCache: false, errored: true, errorReason: "NS_ERROR_NET_TIMEOUT" });
+  accumulate(day, { site: "example.com", host: "ads.net", bytes: null, fromCache: false, errored: true, errorReason: "NS_ERROR_ABORT" });
+  // A missing reason is folded under "unknown" rather than dropped.
+  accumulate(day, { site: "example.com", host: "ads.net", bytes: null, fromCache: false, errored: true });
+
+  const s = day["example.com"];
+  assert.deepEqual(s.er, { NS_ERROR_NET_TIMEOUT: 2, NS_ERROR_ABORT: 1, unknown: 1 });
+  assert.deepEqual(s.h["cdn.example.com"].er, { NS_ERROR_NET_TIMEOUT: 2 });
+  assert.deepEqual(s.h["ads.net"].er, { NS_ERROR_ABORT: 1, unknown: 1 });
+});
+
+test("mergeDay sums error reason histograms", () => {
+  const a = {};
+  accumulate(a, { site: "example.com", host: "h", bytes: null, fromCache: false, errored: true, errorReason: "X" });
+  const b = {};
+  accumulate(b, { site: "example.com", host: "h", bytes: null, fromCache: false, errored: true, errorReason: "X" });
+  accumulate(b, { site: "example.com", host: "h", bytes: null, fromCache: false, errored: true, errorReason: "Y" });
+
+  const merged = mergeDay(a, b);
+  assert.deepEqual(merged["example.com"].er, { X: 2, Y: 1 });
+  assert.deepEqual(merged["example.com"].h.h.er, { X: 2, Y: 1 });
+  assert.deepEqual(a["example.com"].er, { X: 1 }, "source bucket is not mutated");
+});
+
+test("errorReasons flattens rows into a descending reason list", () => {
+  const day = {};
+  accumulate(day, { site: "example.com", host: "a.net", bytes: null, fromCache: false, errored: true, errorReason: "TIMEOUT" });
+  accumulate(day, { site: "other.com", host: "b.net", bytes: null, fromCache: false, errored: true, errorReason: "TIMEOUT" });
+  accumulate(day, { site: "other.com", host: "b.net", bytes: null, fromCache: false, errored: true, errorReason: "ABORT" });
+  const rows = aggregate([{ date: "2026-01-01", data: day }], { groupBy: "site" });
+
+  assert.deepEqual(errorReasons(rows), [
+    { reason: "TIMEOUT", count: 2 },
+    { reason: "ABORT", count: 1 },
+  ]);
 });
 
 test("accumulate counts an unmeasured response without touching wire counters", () => {
@@ -87,12 +131,17 @@ test("accumulate counts an unmeasured response without touching wire counters", 
 test("mergeDay sums counters across buckets without mutating inputs", () => {
   const a = {};
   accumulate(a, { site: "example.com", host: "example.com", bytes: 100, fromCache: false });
+  accumulate(a, { site: "example.com", host: "example.com", bytes: 10, fromCache: true });
   const b = {};
   accumulate(b, { site: "example.com", host: "example.com", bytes: 200, fromCache: false });
+  accumulate(b, { site: "example.com", host: "example.com", bytes: 20, fromCache: true });
 
   const merged = mergeDay(a, b);
   assert.equal(merged["example.com"].b, 300);
-  assert.equal(merged["example.com"].r, 2);
+  assert.equal(merged["example.com"].r, 4);
+  assert.equal(merged["example.com"].c, 2);
+  assert.equal(merged["example.com"].cb, 30, "cached bytes merge too");
+  assert.equal(merged["example.com"].h["example.com"].cb, 30, "and per host");
   assert.equal(a["example.com"].b, 100, "source bucket unchanged");
 });
 
@@ -111,6 +160,42 @@ test("aggregate groups by site and by serving host", () => {
   assert.equal(byHost.find((r) => r.key === "cdn.net").bytes, 150);
 });
 
+test("hostBreakdown lists a site's hosts, largest first", () => {
+  const day = {};
+  accumulate(day, { site: "example.com", host: "cdn.net", bytes: 100, fromCache: false });
+  accumulate(day, { site: "example.com", host: "cdn.net", bytes: 50, fromCache: false });
+  accumulate(day, { site: "example.com", host: "example.com", bytes: 400, fromCache: false });
+  accumulate(day, { site: "example.com", host: "tracker.io", bytes: null, fromCache: false });
+  accumulate(day, { site: "other.com", host: "other.com", bytes: 999, fromCache: false });
+  const days = [{ date: "2026-01-01", data: day }];
+
+  const hosts = hostBreakdown(days, "example.com");
+  assert.deepEqual(hosts.map((r) => r.key), ["example.com", "cdn.net", "tracker.io"]);
+  assert.equal(hosts[0].bytes, 400);
+  assert.equal(hosts[1].bytes, 150, "the two cdn.net requests are folded together");
+  assert.equal(hosts[1].requests, 2);
+  assert.equal(hosts[2].unknown, 1);
+});
+
+test("hostBreakdown sums a host across multiple days", () => {
+  const a = {};
+  accumulate(a, { site: "example.com", host: "cdn.net", bytes: 100, fromCache: false });
+  const b = {};
+  accumulate(b, { site: "example.com", host: "cdn.net", bytes: 250, fromCache: false });
+  const days = [{ date: "2026-01-01", data: a }, { date: "2026-01-02", data: b }];
+
+  const hosts = hostBreakdown(days, "example.com");
+  assert.equal(hosts.length, 1);
+  assert.equal(hosts[0].bytes, 350);
+  assert.equal(hosts[0].requests, 2);
+});
+
+test("hostBreakdown of an unknown site is empty", () => {
+  const day = {};
+  accumulate(day, { site: "example.com", host: "cdn.net", bytes: 100, fromCache: false });
+  assert.deepEqual(hostBreakdown([{ date: "2026-01-01", data: day }], "missing.com"), []);
+});
+
 test("aggregate supports substring filter and top-N", () => {
   const day = {};
   accumulate(day, { site: "example.com", host: "example.com", bytes: 100, fromCache: false });
@@ -127,11 +212,11 @@ test("aggregate supports substring filter and top-N", () => {
 
 test("sumRows totals the aggregate output", () => {
   const rows = [
-    { key: "a", bytes: 100, requests: 2, unknown: 0, cached: 1, decoded: 30, measured: 1, errored: 0, unmeasured: 0 },
-    { key: "b", bytes: 50, requests: 1, unknown: 1, cached: 0, decoded: 0, measured: 0, errored: 1, unmeasured: 2 },
+    { key: "a", bytes: 100, requests: 2, unknown: 0, cached: 1, cachedBytes: 40, decoded: 30, measured: 1, errored: 0, unmeasured: 0 },
+    { key: "b", bytes: 50, requests: 1, unknown: 1, cached: 0, cachedBytes: 0, decoded: 0, measured: 0, errored: 1, unmeasured: 2 },
   ];
   assert.deepEqual(sumRows(rows), {
-    bytes: 150, requests: 3, unknown: 1, cached: 1, decoded: 30, measured: 1, errored: 1, unmeasured: 2,
+    bytes: 150, requests: 3, unknown: 1, cached: 1, cachedBytes: 40, decoded: 30, measured: 1, errored: 1, unmeasured: 2,
   });
 });
 
@@ -181,9 +266,9 @@ test("formatBytes uses binary units", () => {
 
 test("rowsToCsv escapes commas and quotes", () => {
   const csv = rowsToCsv([
-    { key: 'a,"b"', bytes: 1, decoded: 9, requests: 2, unknown: 3, cached: 4, measured: 5, errored: 6, unmeasured: 7 },
+    { key: 'a,"b"', bytes: 1, decoded: 9, requests: 2, unknown: 3, cached: 4, cachedBytes: 8, measured: 5, errored: 6, unmeasured: 7 },
   ]);
   const lines = csv.split("\n");
-  assert.equal(lines[0], "key,bytes,decoded_bytes,requests,unknown_size,cached,decoded_measured,errored,unmeasured");
-  assert.equal(lines[1], '"a,""b""",1,9,2,3,4,5,6,7');
+  assert.equal(lines[0], "key,bytes,decoded_bytes,requests,unknown_size,cached,cached_bytes,decoded_measured,errored,unmeasured");
+  assert.equal(lines[1], '"a,""b""",1,9,2,3,4,8,5,6,7');
 });

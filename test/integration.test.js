@@ -7,7 +7,8 @@ import assert from "node:assert/strict";
 
 import { Store } from "../src/lib/store.js";
 import { Collector } from "../src/lib/collector.js";
-import { aggregate, dateRange, sumRows, formatBytes, coverage } from "../src/lib/aggregate.js";
+import { aggregate, dateRange, sumRows, formatBytes, coverage, errorReasons } from "../src/lib/aggregate.js";
+import { entriesToCsv } from "../src/lib/requestlog.js";
 
 class FakeArea {
   constructor() { this.data = {}; }
@@ -62,11 +63,12 @@ test("simulated session produces the expected dashboard view", async () => {
   const shop = bySite.find((r) => r.key === "example.org");
 
   // news.example owns its own 500k plus the third-party CDN 500k and the
-  // unknown-size ad pixel; cached logo bytes are excluded.
+  // unknown-size ad pixel; the cached logo's 4k is recorded separately, not in b.
   assert.equal(news.bytes, 1000000);
   assert.equal(news.requests, 5);
   assert.equal(news.unknown, 1);
   assert.equal(news.cached, 1);
+  assert.equal(news.cachedBytes, 4000, "cached bytes kept in their own column");
   assert.equal(shop.bytes, 100000);
 
   const totals = sumRows(bySite);
@@ -172,6 +174,7 @@ test("a cancelled download is visible as errored rather than silently missing", 
     fromCache: false,
     documentUrl: "https://www.news.example/",
     url: "https://cdn.assets.net/movie.mp4",
+    error: "NS_ERROR_ABORT",
   });
   await collector.flush();
 
@@ -182,5 +185,44 @@ test("a cancelled download is visible as errored rather than silently missing", 
   assert.equal(row.bytes, 0, "with no bytes we can attribute");
   // Errored requests are blind spots, so they must not inflate known-size coverage.
   assert.equal(coverage(sumRows([row])), 0, "no known-size responses at all");
+
+  // The failure cause is visible without any per-request log.
+  assert.deepEqual(errorReasons([row]), [{ reason: "NS_ERROR_ABORT", count: 1 }]);
+});
+
+test("the detailed log lets wire and decoded usage be compared per request", async () => {
+  const area = new FakeArea();
+  const store = new Store(area);
+  await store.setSettings({ requestLog: true });
+  const collector = new Collector({ store, getSettings: () => store.getSettings() });
+  await collector.init();
+
+  // A normal response with a Content-Length.
+  collector.handleCompleted(req({ type: "image", url: "https://cdn.assets.net/hero.jpg", requestId: "r1", responseHeaders: [{ name: "Content-Length", value: "500000" }] }));
+  // A chunked SSE response: no Content-Length, measured only by precise mode.
+  collector.handleCompleted(req({ type: "xmlhttprequest", url: "https://stream.news.example/live", requestId: "r2", responseHeaders: [] }));
+  collector.handleMeasured({ requestId: "r2", site: "news.example", host: "stream.news.example", timeStamp: DAY }, 2000);
+  // A request that failed, with a reason.
+  collector.handleErrored(req({ type: "xmlhttprequest", url: "https://ads.tracker.io/pixel", requestId: "r3", error: "NS_ERROR_NET_TIMEOUT" }));
+  await collector.flush();
+
+  const entries = (await store.getLogs(dateRange("2026-03-10", "2026-03-10")))[0].entries;
+  assert.equal(entries.length, 3, "one row per request/error, none for the measurement");
+
+  const image = entries.find((e) => e.host === "cdn.assets.net");
+  assert.equal(image.b, 500000);
+  assert.equal(image.d, null, "nothing decoded was measured for this one");
+
+  const sse = entries.find((e) => e.host === "stream.news.example");
+  assert.equal(sse.b, null, "no wire size known");
+  assert.equal(sse.d, 2000, "decoded bytes land on the same row");
+
+  const failed = entries.find((e) => e.host === "ads.tracker.io");
+  assert.equal(failed.e, "NS_ERROR_NET_TIMEOUT");
+
+  // The CSV export carries both byte columns and the error reason.
+  const csv = entriesToCsv(entries);
+  assert.ok(csv.startsWith("time,site,host,type,wire_bytes,cached_bytes,decoded_bytes,cached,error"));
+  assert.ok(csv.includes("NS_ERROR_NET_TIMEOUT"));
 });
 
