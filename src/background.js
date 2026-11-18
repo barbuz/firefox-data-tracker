@@ -111,6 +111,7 @@ function onBeforeRequest(details) {
   if (!site) return undefined;
 
   tracker.attach(details.requestId, {
+    requestId: details.requestId,
     site,
     host: servingHostForRequest(details),
     timeStamp: details.timeStamp || Date.now(),

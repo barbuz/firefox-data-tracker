@@ -10,6 +10,9 @@ a dashboard to review it filtered by date range and site.
   uploaded anywhere.
 - **Reviewable** — filter by date and site, group by site or serving host, and
   export the current view to CSV.
+- **Diagnosable** — a **why requests failed** panel breaks the errored count down
+  by error reason, and an opt-in **detailed request log** records one line per
+  request so the wire and decoded numbers can be compared row by row.
 
 See [DESIGN.md](DESIGN.md) for the full rationale, the accuracy trade-offs, and
 the data model.
@@ -54,8 +57,13 @@ set to `false` in `about:config`.
   - **Site filter** — substring match.
   - **Top N** — limit the table without changing the totals.
   - **Export CSV** — exports all rows matching the current filters.
-  - **Settings** — retention window (days, 0 = keep forever), whether to exclude
-    cached responses from byte totals, precise mode, and **Clear all data**.
+  - **Why requests failed** — a panel that breaks the errored count down by error
+    reason (e.g. `NS_ERROR_NET_TIMEOUT`, `NS_ERROR_ABORT`), shown when anything
+    failed.
+  - **Detailed request log** — opt-in; records one line per request and per error
+    and adds a **Download detailed log** button (CSV). Off by default.
+  - **Settings** — retention window (days, 0 = keep forever), precise mode,
+    detailed request log, and **Clear all data**.
 
 ## What is measured
 
@@ -64,9 +72,14 @@ headers and attributes it to the page's registrable domain. Details and caveats
 (compression, chunked responses with no length, cache, TLS/DNS overhead) are in
 [DESIGN.md](DESIGN.md). Responses with no `Content-Length` are counted in a
 separate **Unknown size** column rather than being treated as zero, so coverage
-gaps are visible. Requests that fail or are cancelled mid-flight are counted in
-an **Errors** column: they never reach `onCompleted`, so their transferred bytes
-cannot be attributed, and they are shown rather than silently dropped.
+gaps are visible. Responses served from disk cache moved no network bytes, so
+their count goes in a **Cached** column and their size in a separate **Cached
+bytes** column, never in the wire total. Requests that fail or are cancelled
+mid-flight are counted in an **Errors** column: they never reach `onCompleted`,
+so their transferred bytes cannot be attributed, and they are shown rather than
+silently dropped. The **Why requests failed** panel breaks those errors down by
+reason, so the cause (a timeout, an abort, a dropped connection) is visible, not
+just the count.
 
 ### Precise mode
 
@@ -83,6 +96,21 @@ Two things to know before enabling it:
 - Decoded sizes are measured **after** decompression, so they are larger than the
   compressed sizes reported in the wire column. They answer a different question
   ("how much did the page have to process") and are not a data-cap figure.
+
+### Detailed request log
+
+The aggregate view answers "how much did each site use"; it cannot say *which*
+request used the bytes or *which* one failed. The optional **Detailed request
+log** toggle records one line per request and per error — time, site, serving
+host, resource type, wire bytes, decoded bytes, cached flag, and error reason —
+so the wire and decoded metrics can be compared request by request and the
+failures inspected individually.
+
+It is off by default because, unlike the aggregate buckets, it grows with request
+volume. Rows are capped per day, live under the same retention window as the
+aggregates, and hold only hostnames, sizes, timestamps, types and error codes —
+never the full URL, headers or body. Use **Download detailed log** on the
+dashboard to export the current range as CSV.
 
 ## Development
 
@@ -108,8 +136,9 @@ src/
   lib/
     domain.js          hostname parsing + registrable-domain (eTLD+1) reduction
     aggregate.js       byte accounting, day aggregation, formatting, CSV
-    store.js           storage.local wrapper: day buckets, settings, pruning
+    store.js           storage.local wrapper: day buckets, log, settings, pruning
     collector.js       request -> bucket folding + debounced flush
+    requestlog.js      opt-in per-request log rows + CSV serialization
   ui/
     dashboard.*        options page (filters, table, export, settings)
     popup.*            toolbar popup (today's total + top sites)

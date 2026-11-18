@@ -4,19 +4,33 @@
 import { mergeDay } from "./aggregate.js";
 
 export const DAY_PREFIX = "day:";
+export const LOG_PREFIX = "log:";
 export const SETTINGS_KEY = "settings";
+
+// Hard cap on log rows kept per day. The per-request log is the only unbounded
+// structure, so it is bounded here: once a day reaches the cap, further rows are
+// dropped (the aggregate buckets are unaffected). 5000 rows/day keeps a heavy
+// session's log to a few hundred KB while still covering a normal day.
+export const MAX_LOG_ENTRIES_PER_DAY = 5000;
 
 export const DEFAULT_SETTINGS = {
   retentionDays: 90,   // 0 = keep forever
-  excludeCached: true, // don't count disk-cache hits toward bytes
   // Opt-in exact counting via filterResponseData. Requires the optional
   // webRequestBlocking + webRequestFilterResponse permissions and makes the
   // extension block on every response, so it stays off by default.
   preciseMode: false,
+  // Opt-in per-request / per-error log, so wire and decoded usage can be compared
+  // request by request and failure causes inspected. Off by default: unlike the
+  // aggregate buckets this grows with request volume (bounded per day above).
+  requestLog: false,
 };
 
 export function dayKeyName(date) {
   return DAY_PREFIX + date;
+}
+
+export function logKeyName(date) {
+  return LOG_PREFIX + date;
 }
 
 export class Store {
@@ -81,22 +95,88 @@ export class Store {
       .sort();
   }
 
+  /**
+   * Every date that has either a day bucket or a log, ascending. Used by prune
+   * and clearAll so a log cannot be orphaned by a missing bucket (or vice versa).
+   */
+  async listAllDates() {
+    const all = await this.area.get(null);
+    const dates = new Set();
+    for (const k of Object.keys(all)) {
+      if (k.startsWith(DAY_PREFIX)) dates.add(k.slice(DAY_PREFIX.length));
+      else if (k.startsWith(LOG_PREFIX)) dates.add(k.slice(LOG_PREFIX.length));
+    }
+    return [...dates].sort();
+  }
+
+  /** Read the raw log array for a date, or [] when absent. */
+  async getLog(date) {
+    const res = await this.area.get(logKeyName(date));
+    return res[logKeyName(date)] || [];
+  }
+
+  /**
+   * Append per-request log rows to storage, one key per day. Each day's array is
+   * capped at MAX_LOG_ENTRIES_PER_DAY: once full, further rows are dropped so a
+   * pathological session cannot grow storage without bound. Dropping rows never
+   * affects the aggregate buckets, which are counted separately.
+   *
+   * @param {Object<string, Array<object>>} buffers  { "YYYY-MM-DD": [entry, ...] }
+   */
+  async appendLogs(buffers) {
+    const dates = Object.keys(buffers);
+    if (dates.length === 0) return;
+    const keys = dates.map(logKeyName);
+    const existing = await this.area.get(keys);
+    const updates = {};
+    for (const date of dates) {
+      const key = logKeyName(date);
+      const stored = existing[key] || [];
+      const room = MAX_LOG_ENTRIES_PER_DAY - stored.length;
+      if (room <= 0) continue;
+      const add = room >= buffers[date].length ? buffers[date] : buffers[date].slice(0, room);
+      updates[key] = stored.concat(add);
+    }
+    if (Object.keys(updates).length) await this.area.set(updates);
+  }
+
+  /** Load log rows for a list of dates, skipping empty ones. */
+  async getLogs(dates) {
+    if (dates.length === 0) return [];
+    const keys = dates.map(logKeyName);
+    const res = await this.area.get(keys);
+    const out = [];
+    for (const date of dates) {
+      const entries = res[logKeyName(date)];
+      if (entries && entries.length) out.push({ date, entries });
+    }
+    return out;
+  }
+
   /** Delete day buckets older than the retention window. Returns count removed. */
   async prune(retentionDays) {
     if (!retentionDays || retentionDays <= 0) return 0;
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - retentionDays);
     const cutoffKey = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, "0")}-${String(cutoff.getDate()).padStart(2, "0")}`;
-    const dates = await this.listDates();
+    const dates = await this.listAllDates();
     const stale = dates.filter((d) => d < cutoffKey);
-    if (stale.length) await this.area.remove(stale.map(dayKeyName));
+    if (stale.length) {
+      // Remove the log for a pruned day alongside its bucket, so the opt-in log
+      // cannot outlive the retention window it belongs to.
+      const keys = stale.flatMap((d) => [dayKeyName(d), logKeyName(d)]);
+      await this.area.remove(keys);
+    }
     return stale.length;
   }
 
-  /** Remove every day bucket, keeping settings. */
+  /** Remove every day bucket and log, keeping settings. */
   async clearAll() {
-    const dates = await this.listDates();
-    if (dates.length) await this.area.remove(dates.map(dayKeyName));
+    const dates = await this.listAllDates();
+    if (dates.length) {
+      const keys = dates.flatMap((d) => [dayKeyName(d), logKeyName(d)]);
+      await this.area.remove(keys);
+    }
     return dates.length;
   }
 }

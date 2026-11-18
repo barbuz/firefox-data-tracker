@@ -11,7 +11,9 @@ log locally, and lets you review it filtered by date and by site.
 - **Reviewable** — a dashboard to filter by date range and site, plus a
   per-day, per-site log you can export.
 
-Non-goals: per-request forensic logging, blocking/tracking, cross-device sync.
+Non-goals: blocking/tracking, cross-device sync, and *always-on* per-request
+logging. A detailed per-request log is available, but it is opt-in (see below),
+because unlike the aggregate buckets it grows with request volume.
 
 ## How data size is measured
 
@@ -37,6 +39,51 @@ invisible entirely. `webRequest.onErrorOccurred` fires in that case, and the
 extension counts the request and flags it `errored` (`e`). It has no known size,
 so it is never added to the wire bytes and it counts against known-size
 coverage: it is a *known blind spot*, recorded rather than silently dropped.
+
+`onErrorOccurred` also carries `details.error` (e.g. `NS_ERROR_NET_TIMEOUT`,
+`NS_ERROR_ABORT`, `NS_BINDING_ABORTED`). Each failure folds that reason into a
+per-day histogram (`er`), so the dashboard can answer *why* requests failed, not
+just how many. The histogram is bounded by the number of distinct error codes,
+so it is always on — unlike the per-request log below.
+
+### Detailed request log (opt-in)
+
+The aggregate buckets are deliberately one row per (day, site, host): they can
+say how much a site used and how many requests failed, but not *which* request
+used the bytes or *which* one failed and why. Answering "compare the wire and
+decoded numbers request by request, and see the main reasons for errors" needs a
+finer record, so the extension offers an opt-in **detailed request log**.
+
+When enabled (`settings.requestLog`), the collector writes one row per request
+and one per error, under `log:YYYY-MM-DD`:
+
+```jsonc
+{ "t": 1700000000000,      // request timestamp (epoch ms)
+  "site": "example.com",   // owning document (registrable domain)
+  "host": "cdn.example.com", // serving host
+  "type": "script",        // webRequest resource type
+  "b": 2048,               // wire bytes (Content-Length), null when unknown
+  "cb": null,              // cached bytes, null unless served from disk cache
+  "c": 0,                  // 1 when served from disk cache
+  "d": null,               // decoded bytes (precise mode), filled in later
+  "e": "" }                // error reason for a failed request, else ""
+```
+
+A precise-mode measurement for a request is folded back onto that request's row
+(by `requestId`), so a chunked/streamed response shows its decoded total on the
+same line that shows it had no wire size — that is what makes the two units
+comparable row by row. A failed request carries its reason in `e` and no size.
+As in the day buckets, a cached response's size goes in `cb` (never `b`), so
+summing the log's wire column matches the dashboard's network-only total.
+
+It is **off by default** because, unlike the aggregate buckets, its size grows
+with request volume. Two guards keep that bounded: rows are capped per day
+(`MAX_LOG_ENTRIES_PER_DAY`) at the store boundary, and they live under the same
+retention window and "Clear all data" as the buckets. The log holds only
+hostnames, sizes, timestamps, types and error codes — never the full URL,
+headers or body — so the privacy rule is unchanged. It can be exported as CSV
+from the dashboard (one row per request, wire/cached/decoded byte columns and
+the error).
 
 ### Precise mode, and why both numbers are stored
 
@@ -99,9 +146,11 @@ headers, TLS overhead, and DNS. Those are documented as out of scope.
 ### Cached responses
 
 A response served from the disk cache (`details.fromCache === true`) transferred
-no bytes over the network. Counting it would inflate totals, so cached responses
-are excluded from byte totals by default and tracked in a separate `cached`
-counter.
+no bytes over the network. Counting it would inflate totals, so a cached response
+is never added to the wire total `b`. Its count goes in a separate `c` counter and
+its size in a separate `cb` (cached bytes) counter — the size is always recorded,
+just kept apart, so the cached volume is visible without being mistaken for
+network usage. There is no toggle: the two are simply never mixed.
 
 ## Attribution: "per site"
 
@@ -132,13 +181,17 @@ Data is aggregated, not stored per request. Each calendar day is one
     "b": 10485760,                 // wire bytes with known size (Content-Length)
     "r": 412,                      // completed requests
     "u": 7,                        // requests with unknown size (no Content-Length)
-    "c": 33,                       // requests served from cache (excluded from b)
+    "c": 33,                       // requests served from disk cache (excluded from b)
+    "cb": 262144,                  // bytes of the cached responses (never in b)
     "d": 0,                        // decoded bytes (precise mode only)
     "dm": 0,                       // responses that contributed a d measurement
     "e": 2,                        // requests that failed (onErrorOccurred)
     "x": 0,                        // precise-mode measurements that failed
+    "er": {                        // failure reasons -> count
+      "NS_ERROR_NET_TIMEOUT": 2
+    },
     "h": {                         // per serving-host breakdown
-      "cdn.example.com": { "b": 9437184, "r": 300, "u": 2, "c": 10, "d": 0, "dm": 0, "e": 1, "x": 0 }
+      "cdn.example.com": { "b": 9437184, "r": 300, "u": 2, "c": 10, "cb": 262144, "d": 0, "dm": 0, "e": 1, "x": 0, "er": { "NS_ERROR_NET_TIMEOUT": 1 } }
     }
   }
 }
@@ -153,6 +206,12 @@ Why this shape:
   volume, so months of browsing stay tiny.
 - **Nested host map** gives the second grouping dimension without a second
   top-level key scheme.
+- **`er`** is a small histogram bounded by the number of distinct error codes, so
+  "why did requests fail" is answerable without the opt-in per-request log.
+
+The optional per-request log lives in a *separate* key space, `log:YYYY-MM-DD`
+(an array of request rows), so the aggregate buckets stay small and a log row is
+never confused with a bucket. Both are pruned together and cleared together.
 
 ### Write path (keeping it cheap)
 
@@ -210,10 +269,15 @@ dashboard reads aggregate data from `storage` directly.
 - Group-by toggle: **site** or **serving host**.
 - Site filter (substring match + include/exclude the top N).
 - Sortable table: wire bytes (with bar), decoded bytes (precise mode only),
-  requests, unknown-size count, cached count, errored count, and unmeasured
-  (precise-mode gap) count.
+  requests, unknown-size count, cached count, cached bytes, errored count, and
+  unmeasured (precise-mode gap) count.
+- **Why requests failed** — a panel listing the error-reason histogram, so the
+  errored count is explained rather than just shown.
 - Totals, including the share of responses that have a known wire size, and a
   **CSV export** of the current filtered view.
+- **Download detailed log** — the opt-in per-request log for the current range as
+  CSV (time, site, serving host, type, wire bytes, decoded bytes, cached, error),
+  for comparing the two byte metrics request by request.
 
 The popup shows today's wire total, today's decoded total when precise mode has
 measured anything, and the top few sites.
@@ -235,11 +299,15 @@ measured anything, and the top few sites.
 - Precise mode's decoded byte counts include responses served from the disk
   cache, because a stream filter measures the body that is delivered to the page
   regardless of where it came from. The wire column still excludes cached
-  responses under `excludeCached`; the two columns are therefore not a strict
-  like-for-like comparison.
+  responses (their bytes are in the separate cached-bytes column); the two
+  columns are therefore not a strict like-for-like comparison.
 - Precise mode cannot see WebSocket payloads (only the HTTP handshake passes
   through `webRequest`), and it adds the extension to the blocking path of every
   response while enabled.
+- The opt-in detailed log is capped per day (`MAX_LOG_ENTRIES_PER_DAY`); past the
+  cap, later rows are dropped from the log (the aggregate buckets are unaffected).
+  An error reason is taken from `details.error` and is not normalised, so the same
+  underlying failure can appear under more than one code.
 
 ## Possible extensions
 
@@ -247,4 +315,4 @@ measured anything, and the top few sites.
 - Weekly/monthly roll-ups stored alongside daily buckets.
 - Per-tab live meter using `webRequest` + `tabs` events.
 - Per-request-type breakdown (script vs image vs xmlhttprequest). `details.type`
-  is already available on every event; it is simply not stored yet.
+  is already stored on every detailed-log row; only the aggregate view omits it.

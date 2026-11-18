@@ -35,10 +35,13 @@
 
   <section class="settings" aria-label="Settings">
     <label>Retention (days) <input type="number" id="retention" min="0" /></label>
-    <label><input type="checkbox" id="excludeCached" /> Exclude cached responses from bytes</label>
     <label>
       <input type="checkbox" id="preciseMode" />
       Precise mode (measure decoded bytes)
+    </label>
+    <label>
+      <input type="checkbox" id="requestLog" />
+      Detailed request log
     </label>
     <span class="hint" id="preciseHint">
       Counts the bytes each response actually delivers, including chunked and
@@ -46,7 +49,20 @@
       permission, and decoded sizes are larger than the compressed sizes on the
       wire, so both are shown side by side.
     </span>
+    <span class="hint" id="requestLogHint">
+      Records one line per request and per error (time, site, serving host, type,
+      wire bytes, decoded bytes, and the error reason), so the wire and decoded
+      numbers can be compared request by request. Stored locally, capped per day,
+      and removed with the retention window. Off by default because it grows with
+      request volume.
+    </span>
+    <button id="exportLog">Download detailed log</button>
     <button id="clear">Clear all data</button>
+  </section>
+
+  <section class="reasons" id="reasons" aria-label="Error reasons" hidden>
+    <h2>Why requests failed</h2>
+    <ul id="reasonsList"></ul>
   </section>
 
   <main>
@@ -61,6 +77,7 @@
           <th class="num">Requests</th>
           <th class="num">Unknown size</th>
           <th class="num">Cached</th>
+          <th class="num" id="colCachedBytes" hidden>Cached bytes</th>
           <th class="num" id="colErrored" hidden>Errors</th>
           <th class="num" id="colUnmeasured" hidden>Unmeasured</th>
         </tr>

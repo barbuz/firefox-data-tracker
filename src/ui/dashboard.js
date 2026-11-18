@@ -10,7 +10,9 @@ import {
   sumRows,
   rowsToCsv,
   coverage,
+  errorReasons,
 } from "../lib/aggregate.js";
+import { entriesToCsv } from "../lib/requestlog.js";
 
 const store = new Store(browser.storage.local);
 const $ = (id) => document.getElementById(id);
@@ -28,7 +30,7 @@ const state = {
   rows: [],
   all: [],
   preciseMode: false,
-  totals: { bytes: 0, requests: 0, unknown: 0, cached: 0, decoded: 0, measured: 0, errored: 0, unmeasured: 0 },
+  totals: { bytes: 0, requests: 0, unknown: 0, cached: 0, cachedBytes: 0, decoded: 0, measured: 0, errored: 0, unmeasured: 0 },
 };
 
 async function init() {
@@ -40,9 +42,9 @@ async function init() {
 
   const settings = await store.getSettings();
   $("retention").value = settings.retentionDays;
-  $("excludeCached").checked = settings.excludeCached;
   state.preciseMode = !!settings.preciseMode;
   $("preciseMode").checked = state.preciseMode;
+  $("requestLog").checked = !!settings.requestLog;
 
   bindControls();
   await load();
@@ -61,14 +63,15 @@ function bindControls() {
 
   $("refresh").addEventListener("click", load);
   $("export").addEventListener("click", exportCsv);
+  $("exportLog").addEventListener("click", exportLog);
   $("clear").addEventListener("click", clearAll);
 
   $("retention").addEventListener("change", (e) =>
     store.setSettings({ retentionDays: Number(e.target.value) || 0 }));
-  $("excludeCached").addEventListener("change", (e) =>
-    store.setSettings({ excludeCached: e.target.checked }));
 
   $("preciseMode").addEventListener("change", togglePreciseMode);
+  $("requestLog").addEventListener("change", (e) =>
+    store.setSettings({ requestLog: e.target.checked }));
 }
 
 /**
@@ -143,8 +146,12 @@ function render() {
   // Same for the coverage-gap columns: only shown when they have something to say.
   const showErrored = totals.errored > 0;
   const showUnmeasured = totals.unmeasured > 0;
+  // Cached bytes are always recorded separately from the wire total; the column
+  // only appears once there is something cached to show.
+  const showCachedBytes = totals.cachedBytes > 0;
   $("colErrored").hidden = !showErrored;
   $("colUnmeasured").hidden = !showUnmeasured;
+  $("colCachedBytes").hidden = !showCachedBytes;
 
   $("colKey").textContent = state.groupBy === "site" ? "Site" : "Serving host";
 
@@ -157,6 +164,7 @@ function render() {
     ` wire · ${totals.requests.toLocaleString()} requests` +
     (totals.unknown ? ` · ${totals.unknown.toLocaleString()} unknown size` : "") +
     (totals.cached ? ` · ${totals.cached.toLocaleString()} cached` : "") +
+    (showCachedBytes ? ` (${formatBytes(totals.cachedBytes)})` : "") +
     (showErrored ? ` · ${totals.errored.toLocaleString()} failed` : "");
   if (showDecoded) {
     summary += ` · ${formatBytes(totals.decoded)} decoded` +
@@ -171,6 +179,8 @@ function render() {
 
   $("empty").hidden = state.rows.length > 0;
 
+  renderReasons(state.all);
+
   state.rows.forEach((row, i) => {
     const tr = document.createElement("tr");
     tr.appendChild(cell(String(i + 1), "num"));
@@ -183,6 +193,9 @@ function render() {
     tr.appendChild(cell(row.requests.toLocaleString(), "num"));
     tr.appendChild(cell(row.unknown.toLocaleString(), "num"));
     tr.appendChild(cell(row.cached.toLocaleString(), "num"));
+    if (showCachedBytes) {
+      tr.appendChild(cell(row.cachedBytes ? formatBytes(row.cachedBytes) : "—", "num"));
+    }
     if (showErrored) {
       tr.appendChild(cell(row.errored.toLocaleString(), "num"));
     }
@@ -217,6 +230,55 @@ function exportCsv() {
   const a = document.createElement("a");
   a.href = url;
   a.download = `data-usage-${state.from}_to_${state.to}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Render the error-reason breakdown. This is the answer to "what are the main
+ * reasons for errors": the Errors column says how many failed, this says why.
+ * Hidden entirely when nothing failed, so it adds no noise on a clean day.
+ */
+function renderReasons(rows) {
+  const reasons = errorReasons(rows);
+  const section = $("reasons");
+  section.hidden = reasons.length === 0;
+  const list = $("reasonsList");
+  list.textContent = "";
+  const total = reasons.reduce((n, r) => n + r.count, 0);
+  for (const { reason, count } of reasons) {
+    const li = document.createElement("li");
+    const label = document.createElement("span");
+    label.textContent = reason;
+    const value = document.createElement("span");
+    value.className = "num";
+    value.textContent = `${count.toLocaleString()} (${Math.round((count / total) * 100)}%)`;
+    li.append(label, value);
+    list.appendChild(li);
+  }
+}
+
+/**
+ * Download the detailed per-request log for the current date range as CSV. The
+ * log is only present when the opt-in toggle was on while those requests
+ * happened, so an empty file here means the log was off, not that nothing ran.
+ */
+async function exportLog() {
+  const dates = dateRange(state.from, state.to);
+  const days = await store.getLogs(dates);
+  const entries = days.flatMap((d) => d.entries);
+  if (entries.length === 0) {
+    alert(
+      "No detailed log rows for this range.\n\n" +
+      "Enable \"Detailed request log\" to start recording one line per request."
+    );
+    return;
+  }
+  const blob = new Blob([entriesToCsv(entries)], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `data-usage-log-${state.from}_to_${state.to}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }

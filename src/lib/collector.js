@@ -9,6 +9,7 @@ import {
   mergeDay,
 } from "./aggregate.js";
 import { siteKeyForRequest, servingHostForRequest } from "./domain.js";
+import { completedEntry, erroredEntry, addDecoded } from "./requestlog.js";
 
 export class Collector {
   /**
@@ -23,6 +24,8 @@ export class Collector {
     this.getSettings = getSettings;
     this.schedule = schedule || ((fn, ms) => setTimeout(fn, ms));
     this.buffer = {};        // { "YYYY-MM-DD": dayBucket }
+    this.logBuffer = {};     // { "YYYY-MM-DD": [entry, ...] } (requestLog only)
+    this.logIndex = new Map(); // requestId -> entry, to fold a later decoded total
     this.pendingFlush = null;
     this.settings = null;
   }
@@ -38,7 +41,7 @@ export class Collector {
     if (details.type === "speculative") return;
 
     const bytes = contentLengthFromHeaders(details.responseHeaders);
-    const fromCache = this.settings?.excludeCached !== false && !!details.fromCache;
+    const fromCache = !!details.fromCache;
 
     const site = siteKeyForRequest(details);
     const host = servingHostForRequest(details);
@@ -47,7 +50,27 @@ export class Collector {
     const date = dateKey(details.timeStamp || Date.now());
     const day = (this.buffer[date] ||= {});
     accumulate(day, { site, host, bytes, fromCache });
+    this.recordLog(date, details, { site, host, bytes });
     this.requestFlush();
+  }
+
+  /**
+   * Buffer a per-request log row, when the opt-in log is enabled. The row keeps a
+   * reference keyed by requestId so a precise-mode measurement arriving later can
+   * fill in the decoded byte total for the same request.
+   */
+  recordLog(date, details, { site, host, bytes }) {
+    if (!this.settings?.requestLog) return;
+    const entry = completedEntry({
+      timeStamp: details.timeStamp || Date.now(),
+      site,
+      host,
+      type: details.type,
+      bytes,
+      fromCache: !!details.fromCache,
+    });
+    (this.logBuffer[date] ||= []).push(entry);
+    if (details.requestId) this.logIndex.set(details.requestId, entry);
   }
 
   /** Update cached settings (e.g. after the user toggles a preference). */
@@ -70,13 +93,27 @@ export class Collector {
 
     const date = dateKey(details.timeStamp || Date.now());
     const day = (this.buffer[date] ||= {});
+    const host = servingHostForRequest(details);
+    const reason = errorReason(details);
     accumulate(day, {
       site,
-      host: servingHostForRequest(details),
+      host,
       bytes: null,
       fromCache: false,
       errored: true,
+      errorReason: reason,
     });
+    if (this.settings?.requestLog) {
+      (this.logBuffer[date] ||= []).push(
+        erroredEntry({
+          timeStamp: details.timeStamp || Date.now(),
+          site,
+          host,
+          type: details.type,
+          reason,
+        })
+      );
+    }
     this.requestFlush();
   }
 
@@ -127,6 +164,10 @@ export class Collector {
       countRequest: false,
       wireAccounting: false,
     });
+    // Fold the decoded total into the same request's log row, so the log can be
+    // used to compare wire vs decoded usage request by request.
+    const entry = meta.requestId && this.logIndex.get(meta.requestId);
+    if (entry) addDecoded(entry, decodedBytes);
     this.requestFlush();
   }
 
@@ -140,15 +181,36 @@ export class Collector {
 
   /** Merge the in-memory buffer into storage. Safe to call directly on shutdown. */
   async flush() {
-    if (Object.keys(this.buffer).length === 0) return;
-    const snapshot = this.buffer;
+    const daySnapshot = this.buffer;
+    const logSnapshot = this.logBuffer;
     this.buffer = {};
+    this.logBuffer = {};
+    // Decoded totals are folded into log rows that have now been written; drop the
+    // index so it cannot grow across flushes. A measurement arriving for an
+    // already-flushed request is simply not reflected in that log row (the
+    // aggregate decoded column still records it).
+    this.logIndex.clear();
+
+    const hasDays = Object.keys(daySnapshot).length > 0;
+    const hasLog = Object.keys(logSnapshot).length > 0;
+    if (!hasDays && !hasLog) return;
+
+    // Each buffer is restored independently on failure: if the day merge succeeds
+    // but the log append fails, restoring the days too would double-count them on
+    // the next flush.
     try {
-      await this.store.mergeDays(snapshot);
+      if (hasDays) await this.store.mergeDays(daySnapshot);
     } catch (err) {
-      // Put the data back so a later flush can retry.
-      for (const [date, day] of Object.entries(snapshot)) {
+      for (const [date, day] of Object.entries(daySnapshot)) {
         this.buffer[date] = mergeDay(this.buffer[date], day);
+      }
+      throw err;
+    }
+    try {
+      if (hasLog) await this.store.appendLogs(logSnapshot);
+    } catch (err) {
+      for (const [date, entries] of Object.entries(logSnapshot)) {
+        this.logBuffer[date] = (this.logBuffer[date] || []).concat(entries);
       }
       throw err;
     }
@@ -158,4 +220,14 @@ export class Collector {
   get bufferedDays() {
     return Object.keys(this.buffer).length;
   }
+
+  /** Test/teardown helper. */
+  get bufferedLogRows() {
+    return Object.values(this.logBuffer).reduce((n, rows) => n + rows.length, 0);
+  }
+}
+
+/** Map webRequest.onErrorOccurred details to a short, stable reason label. */
+function errorReason(details) {
+  return details?.error || "unknown";
 }
