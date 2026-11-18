@@ -204,7 +204,7 @@ function render() {
     // "Per site" rows are the page plus its third parties, so expand to the
     // serving hosts that made up the total. Bars are scaled to the largest host
     // so the breakdown reads on its own terms.
-    const hosts = hostBreakdown(state.days, row.key, { siteFilter: state.siteFilter });
+    const hosts = hostBreakdown(state.days, row.key);
     if (hosts.length === 0) {
       tbody.appendChild(noteRow(cols, "No per-host breakdown recorded for this site."));
       return;

@@ -237,18 +237,16 @@ export function aggregate(days, opts = {}) {
 /**
  * Per-host breakdown for a single site, as rows shaped like aggregate()'s, so
  * the dashboard can show what a site's total is made of (which servers actually
- * served the bytes). Honours the same site filter, so a filtered view's site row
- * expands to exactly the hosts that contributed to it.
+ * served the bytes).
+ *
+ * No site filter here: the caller only expands sites that already passed the
+ * filter in aggregate(), and this must list every host behind such a site.
  *
  * @param {Array<{date:string, data:object}>} days
  * @param {string} site
- * @param {object} [opts]
- * @param {string} [opts.siteFilter]
  * @returns {Array<{key:string, bytes:number, requests:number, unknown:number, cached:number, cachedBytes:number}>}
  */
-export function hostBreakdown(days, site, opts = {}) {
-  const { siteFilter = "" } = opts;
-  if (siteFilter && !site.toLowerCase().includes(siteFilter.toLowerCase())) return [];
+export function hostBreakdown(days, site) {
   const totals = new Map();
   for (const { data } of days) {
     const s = data && data[site];

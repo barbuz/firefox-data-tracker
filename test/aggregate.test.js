@@ -190,15 +190,6 @@ test("hostBreakdown sums a host across multiple days", () => {
   assert.equal(hosts[0].requests, 2);
 });
 
-test("hostBreakdown honours the site filter like aggregate does", () => {
-  const day = {};
-  accumulate(day, { site: "example.com", host: "cdn.net", bytes: 100, fromCache: false });
-  const days = [{ date: "2026-01-01", data: day }];
-
-  assert.equal(hostBreakdown(days, "example.com", { siteFilter: "example" }).length, 1);
-  assert.deepEqual(hostBreakdown(days, "example.com", { siteFilter: "nomatch" }), []);
-});
-
 test("hostBreakdown of an unknown site is empty", () => {
   const day = {};
   accumulate(day, { site: "example.com", host: "cdn.net", bytes: 100, fromCache: false });
