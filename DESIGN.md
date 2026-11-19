@@ -279,7 +279,7 @@ dashboard reads aggregate data from `storage` directly.
   made up that site's total (from the same `h` map the day buckets already keep),
   so "which servers did this site actually pull from" is one click away.
 - Site filter (substring match + include/exclude the top N).
-- Sortable table: wire bytes (with bar), decoded bytes (precise mode only),
+- Sortable table: wire bytes, decoded bytes (precise mode only),
   requests, unknown wire size count, empty-body count, cached count, cached
   bytes, errored count, and unmeasured (precise-mode gap) count.
 - **Why requests failed** — a panel listing the error-reason histogram, so the

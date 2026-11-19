@@ -95,14 +95,14 @@ tr:hover td { background: rgba(255, 255, 255, 0.04); }
   cursor: pointer;
 }
 .row-toggle:hover { color: var(--accent); }
-.row-toggle .chevron { color: var(--muted); font-size: 11px; width: 10px; }
+.row-toggle .chevron { color: var(--muted); font-size: 14px; width: 14px; line-height: 1; }
+
+tr.expandable { cursor: pointer; }
+tr.expandable:hover .row-toggle { color: var(--accent); }
 
 .host-row td { background: rgba(255, 255, 255, 0.015); }
 .host-row:hover td { background: rgba(255, 255, 255, 0.05); }
 .host-key { padding-left: 28px; color: var(--muted); }
 .host-key.note { font-style: italic; }
-
-.bar-col { width: 120px; }
-.meter { height: 8px; border-radius: 4px; background: var(--accent); min-width: 2px; }
 
 .empty { color: var(--muted); text-align: center; padding: 40px 0; }

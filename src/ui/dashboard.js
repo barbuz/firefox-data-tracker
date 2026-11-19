@@ -144,7 +144,6 @@ function render() {
   const tbody = document.querySelector("#results tbody");
   tbody.textContent = "";
   const totals = state.totals;
-  const max = state.rows.length ? state.rows[0].bytes : 0;
 
   // The decoded column only carries information when precise mode has actually
   // recorded measurements, so it is hidden otherwise rather than shown as zeros.
@@ -204,32 +203,30 @@ function render() {
 
   state.rows.forEach((row, i) => {
     const expanded = expandable && state.expanded.has(row.key);
-    tbody.appendChild(rowElement(row, { index: i + 1, cols, max, expandable, expanded }));
+    tbody.appendChild(rowElement(row, { index: i + 1, cols, expandable, expanded }));
 
     if (!expanded) return;
     // "Per site" rows are the page plus its third parties, so expand to the
-    // serving hosts that made up the total. Bars are scaled to the largest host
-    // so the breakdown reads on its own terms.
+    // serving hosts that made up the total.
     const hosts = hostBreakdown(state.days, row.key);
     if (hosts.length === 0) {
       tbody.appendChild(noteRow(cols, "No per-host breakdown recorded for this site."));
       return;
     }
-    const hostMax = hosts[0].bytes;
     for (const h of hosts) {
-      tbody.appendChild(rowElement(h, { cols, max: hostMax, child: true }));
+      tbody.appendChild(rowElement(h, { cols, child: true }));
     }
   });
 }
 
 /** Number of visible table columns, used to span the note row correctly. */
 function columnCount(cols) {
-  return 2 + 1 + (cols.decoded ? 1 : 0) + 1 + 3 +
+  return 2 + 1 + (cols.decoded ? 1 : 0) + 3 +
     (cols.cachedBytes ? 1 : 0) + (cols.errored ? 1 : 0) +
     (cols.unmeasured ? 1 : 0) + (cols.bodyless ? 1 : 0);
 }
 
-function rowElement(row, { index, cols, max, expandable = false, expanded = false, child = false }) {
+function rowElement(row, { index, cols, expandable = false, expanded = false, child = false }) {
   const tr = document.createElement("tr");
   if (child) tr.className = "host-row";
   tr.appendChild(cell(index != null ? String(index) : "", "num"));
@@ -238,7 +235,6 @@ function rowElement(row, { index, cols, max, expandable = false, expanded = fals
   if (cols.decoded) {
     tr.appendChild(cell(row.decoded ? formatBytes(row.decoded) : "—", "num"));
   }
-  tr.appendChild(meterCell(max ? row.bytes / max : 0));
   tr.appendChild(cell(row.requests.toLocaleString(), "num"));
   tr.appendChild(cell(row.unknown.toLocaleString(), "num"));
   tr.appendChild(cell(row.cached.toLocaleString(), "num"));
@@ -254,12 +250,21 @@ function rowElement(row, { index, cols, max, expandable = false, expanded = fals
   if (cols.bodyless) {
     tr.appendChild(cell(row.bodyless.toLocaleString(), "num"));
   }
+  if (expandable) {
+    tr.classList.add("expandable");
+    tr.addEventListener("click", () => {
+      if (window.getSelection().toString()) return;
+      toggleSite(row.key);
+    });
+  }
   return tr;
 }
 
 /**
- * The key cell. A "site" row is clickable to reveal its per-host breakdown; the
- * host rows beneath it are plain, indented text.
+ * The key cell. A "site" row is clickable anywhere to reveal its per-host
+ * breakdown; the host rows beneath it are plain, indented text. The button
+ * carries the keyboard focus and aria-expanded state; its click bubbles to the
+ * row handler, so it needs no listener of its own.
  */
 function keyCell(key, { expandable, expanded, child }) {
   const td = document.createElement("td");
@@ -278,7 +283,6 @@ function keyCell(key, { expandable, expanded, child }) {
   const name = document.createElement("span");
   name.textContent = key;
   btn.append(chevron, name);
-  btn.addEventListener("click", () => toggleSite(key));
   td.appendChild(btn);
   return td;
 }
@@ -305,16 +309,6 @@ function cell(text, cls) {
   const td = document.createElement("td");
   td.textContent = text;
   if (cls) td.className = cls;
-  return td;
-}
-
-function meterCell(fraction) {
-  const td = document.createElement("td");
-  td.className = "bar-col";
-  const bar = document.createElement("div");
-  bar.className = "meter";
-  bar.style.width = `${Math.max(fraction * 100, 1)}%`;
-  td.appendChild(bar);
   return td;
 }
 
