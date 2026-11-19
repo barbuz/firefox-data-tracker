@@ -145,13 +145,14 @@ function render() {
   tbody.textContent = "";
   const totals = state.totals;
 
-  // The decoded column only carries information when precise mode has actually
-  // recorded measurements, so it is hidden otherwise rather than shown as zeros.
-  const showDecoded = state.preciseMode || totals.decoded > 0;
-  $("colDecoded").hidden = !showDecoded;
-  // Same for the coverage-gap columns: only shown when they have something to say.
+  // Decoded bytes and the unmeasured count are both precise-mode concepts: one is
+  // the measurement, the other is a failure to take it. Show them only while
+  // precise mode is selected, even if old measurements are still in storage.
+  const showPrecise = state.preciseMode;
+  $("colDecoded").hidden = !showPrecise;
+  // The coverage-gap columns only appear once they have something to say.
   const showErrored = totals.errored > 0;
-  const showUnmeasured = totals.unmeasured > 0;
+  const showUnmeasured = showPrecise && totals.unmeasured > 0;
   // A bodyless response (204/304/…) is a known zero, not a gap; show the count
   // only when it happened, so it reads as context rather than noise.
   const showBodyless = totals.bodyless > 0;
@@ -163,7 +164,13 @@ function render() {
   $("colBodyless").hidden = !showBodyless;
   $("colCachedBytes").hidden = !showCachedBytes;
 
-  $("colKey").textContent = state.groupBy === "site" ? "Site" : "Serving host";
+  // The key column is a site or a serving host depending on the mode, so its
+  // hover hint has to follow the header text.
+  const bySite = state.groupBy === "site";
+  $("colKey").textContent = bySite ? "Site" : "Serving host";
+  $("colKey").title = bySite
+    ? "The website you visited, including files it loaded from other servers. Click a row to see which servers served it"
+    : "A server that sent data for the sites you visited";
 
   const totalsEl = $("totals");
   totalsEl.textContent = "";
@@ -177,7 +184,7 @@ function render() {
     (totals.cached ? ` · ${totals.cached.toLocaleString()} cached` : "") +
     (showCachedBytes ? ` (${formatBytes(totals.cachedBytes)})` : "") +
     (showErrored ? ` · ${totals.errored.toLocaleString()} failed` : "");
-  if (showDecoded) {
+  if (showPrecise) {
     summary += ` · ${formatBytes(totals.decoded)} decoded` +
       (totals.measured ? ` across ${totals.measured.toLocaleString()} responses` : "");
     if (showUnmeasured) summary += ` · ${totals.unmeasured.toLocaleString()} unmeasured`;
@@ -193,7 +200,7 @@ function render() {
   renderReasons(state.all);
 
   const cols = {
-    decoded: showDecoded,
+    decoded: showPrecise,
     cachedBytes: showCachedBytes,
     errored: showErrored,
     unmeasured: showUnmeasured,

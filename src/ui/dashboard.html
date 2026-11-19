@@ -35,28 +35,6 @@
 
   <section class="settings" aria-label="Settings">
     <label>Retention (days) <input type="number" id="retention" min="0" /></label>
-    <label>
-      <input type="checkbox" id="preciseMode" />
-      Precise mode (measure decoded bytes)
-    </label>
-    <label>
-      <input type="checkbox" id="requestLog" />
-      Detailed request log
-    </label>
-    <span class="hint" id="preciseHint">
-      Counts the bytes each response actually delivers, including chunked and
-      streamed responses that have no Content-Length. Requires an extra
-      permission, and decoded sizes are larger than the compressed sizes on the
-      wire, so both are shown side by side.
-    </span>
-    <span class="hint" id="requestLogHint">
-      Records one line per request and per error (time, site, serving host, type,
-      wire bytes, decoded bytes, and the error reason), so the wire and decoded
-      numbers can be compared request by request. Stored locally, capped per day,
-      and removed with the retention window. Off by default because it grows with
-      request volume.
-    </span>
-    <button id="exportLog">Download detailed log</button>
     <button id="clear">Clear all data</button>
   </section>
 
@@ -66,26 +44,56 @@
   </section>
 
   <main>
-    <table id="results">
-      <thead>
-        <tr>
-          <th class="num">#</th>
-          <th id="colKey">Site</th>
-          <th class="num">Wire</th>
-          <th class="num" id="colDecoded" hidden>Decoded</th>
-          <th class="num">Requests</th>
-          <th class="num">Unknown wire size</th>
-          <th class="num">Cached</th>
-          <th class="num" id="colCachedBytes" hidden>Cached bytes</th>
-          <th class="num" id="colErrored" hidden>Errors</th>
-          <th class="num" id="colUnmeasured" hidden>Unmeasured</th>
-          <th class="num" id="colBodyless" hidden title="Responses with no body (1xx/204/205/304, or HEAD): a real zero, not an unknown">Empty body</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
+    <div class="table-wrap">
+      <table id="results">
+        <thead>
+          <tr>
+            <th class="num" title="Row number in the current sort order">#</th>
+            <th id="colKey" title="The website you visited, including files it loaded from other servers. Click a row to see which servers served it">Site</th>
+            <th class="num" title="Bytes the server sent over the network, still compressed">Wire</th>
+            <th class="num" id="colDecoded" hidden title="Bytes after the browser decompresses them, measured only in precise mode. Larger than wire bytes because compressed files expand">Decoded</th>
+            <th class="num" title="Responses the extension saw, whether they finished, failed, were cached or had no body">Requests</th>
+            <th class="num" title="Responses that gave no size in their headers, such as streamed ones. Their bytes are missing from wire">Unknown wire size</th>
+            <th class="num" title="Responses the browser served from its own cache. They used no network data, so they are not in wire">Cached</th>
+            <th class="num" id="colCachedBytes" hidden title="How big the cached responses were. Shown for reference, not added to wire">Cached bytes</th>
+            <th class="num" id="colErrored" hidden title="Requests that failed or were cancelled. They may have used data we cannot see, so they are not in wire">Errors</th>
+            <th class="num" id="colUnmeasured" hidden title="Responses precise mode tried to measure but could not. Only appears in precise mode">Unmeasured</th>
+            <th class="num" id="colBodyless" hidden title="Responses with no body, such as a 204 or 304. A real zero, not missing data">Empty body</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
     <p class="empty" id="empty" hidden>No data for the selected filters.</p>
   </main>
+
+  <section class="modes" aria-label="Recording options">
+    <div class="mode">
+      <label class="mode-toggle">
+        <input type="checkbox" id="preciseMode" aria-describedby="preciseHint" />
+        Precise mode (measure decoded bytes)
+      </label>
+      <span class="hint" id="preciseHint">
+        Counts the bytes each response actually delivers, including chunked and
+        streamed responses that have no Content-Length. Requires an extra
+        permission. Decoded sizes are larger than the compressed sizes on the
+        wire, so both are shown side by side.
+      </span>
+    </div>
+    <div class="mode">
+      <label class="mode-toggle">
+        <input type="checkbox" id="requestLog" aria-describedby="requestLogHint" />
+        Detailed request log
+      </label>
+      <span class="hint" id="requestLogHint">
+        Records one line per request and per error: time, site, serving host,
+        type, wire bytes, decoded bytes and the error reason. Stored locally,
+        capped per day and removed with the retention window. Off by default
+        because it grows with request volume.
+      </span>
+      <button id="exportLog">Download detailed log</button>
+    </div>
+  </section>
 
   <script type="module" src="dashboard.js"></script>
 </body>

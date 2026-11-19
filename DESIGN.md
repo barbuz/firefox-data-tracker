@@ -281,7 +281,9 @@ dashboard reads aggregate data from `storage` directly.
 - Site filter (substring match + include/exclude the top N).
 - Sortable table: wire bytes, decoded bytes (precise mode only),
   requests, unknown wire size count, empty-body count, cached count, cached
-  bytes, errored count, and unmeasured (precise-mode gap) count.
+  bytes, errored count, and unmeasured (precise-mode gap) count. The two
+  precise-mode columns appear only while precise mode is selected, so the table
+  does not show a decoded column with no measurements behind it.
 - **Why requests failed** — a panel listing the error-reason histogram, so the
   errored count is explained rather than just shown.
 - Totals, including the share of responses that have a known wire size, and a

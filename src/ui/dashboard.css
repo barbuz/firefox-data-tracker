@@ -43,7 +43,19 @@ h1 { font-size: 18px; margin: 0; }
 
 .settings { background: rgba(255, 255, 255, 0.02); }
 
-.hint { flex-basis: 100%; color: var(--muted); font-size: 12px; max-width: 70ch; opacity: 0.85; }
+.hint { color: var(--muted); font-size: 12px; max-width: 70ch; opacity: 0.85; }
+
+/* Recording options sit below the table: they change what gets measured, not
+   what the table shows, so each hint stays next to its own checkbox. */
+.modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 40px;
+  padding: 16px 20px 40px;
+  border-top: 1px solid var(--border);
+}
+.mode { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; flex: 1 1 32ch; }
+.mode-toggle { flex-direction: row; align-items: center; gap: 8px; color: var(--text); font-size: 13px; }
 
 label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
 label input, label select { font: inherit; color: var(--text); background: var(--panel-2);
@@ -72,9 +84,16 @@ button[data-preset] { padding: 6px 10px; }
 
 main { padding: 16px 20px 40px; }
 
+/* The table has too many columns to fit a phone. Containing the overflow here
+   keeps the header, filters and options in place instead of letting the whole
+   page scroll sideways. The table is left to size itself from its content, so
+   narrow screens get a scrollbar and wide screens get a full-width table. */
+.table-wrap { overflow-x: auto; }
+
 table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); }
 th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; }
+th[title] { cursor: help; }
 .num { text-align: right; }
 td.num, th.num { white-space: nowrap; }
 

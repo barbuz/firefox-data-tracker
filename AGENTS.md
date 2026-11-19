@@ -50,6 +50,16 @@ Node 18+ is needed for tests only.
   is the toolbar action. In the site view, a dashboard row expands (click) into
   its per-host breakdown via `hostBreakdown()` — the per-host `h` map is already
   stored, so this needs no extra data, only a second aggregation pass.
+- The dashboard hides its two precise-mode columns (`decoded`, `unmeasured`)
+  whenever `settings.preciseMode` is off, even if the storage still holds older
+  measurements, so the table never implies a measurement the user has stopped
+  taking. Both mode checkboxes and their hints live in the `modes` section below
+  the table, one hint directly under its own checkbox.
+- The results table sits in a `.table-wrap` with `overflow-x: auto`. The table
+  has 11 columns and overflows a phone; without the wrapper the whole page
+  scrolls sideways. Do not give the table a `min-width` (e.g. `max-content`) to
+  "fix" the squeeze — it makes the table overflow its container even on a wide
+  desktop window.
 
 ## Key facts that shaped the code (verified against MDN/BCD)
 
