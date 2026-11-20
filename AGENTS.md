@@ -135,6 +135,12 @@ When changing the storage shape, update `mergeDay`/`accumulate` in
 
 - Keep the dashboard DOM-building free of `innerHTML` (web-ext lints it as
   unsafe); use `textContent` + `createElement`.
+- Column-header descriptions and per-row error histograms live in `data-tip`,
+  not `title`: native tooltips need hover, which touch screens lack.
+  `bindTips()` in `dashboard.js` delegates from the document (so cells created
+  on each render need no rebinding) and shows the text on hover, keyboard focus
+  and tap in a fixed-position popup on `<body>` (a popup inside `.table-wrap`
+  would be clipped by its overflow).
 - `manifest.json` must include `browser_specific_settings.gecko.data_collection_permissions`
   (`{ "required": ["none"] }`) — required for new AMO submissions.
 - Unit tests live in `test/*.test.js` and import directly from `src/lib/`.

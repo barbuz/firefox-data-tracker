@@ -284,8 +284,9 @@ dashboard reads aggregate data from `storage` directly.
   bytes, errored count, and unmeasured (precise-mode gap) count. The two
   precise-mode columns appear only while precise mode is selected, so the table
   does not show a decoded column with no measurements behind it.
-- **Why requests failed** — a panel listing the error-reason histogram, so the
-  errored count is explained rather than just shown.
+- Each row's errored count is a hover/tap target that lists that row's
+  error-reason histogram, so the errored count is explained rather than just
+  shown.
 - Totals, including the share of responses that have a known wire size, and a
   **CSV export** of the current filtered view.
 - **Download detailed log** — the opt-in per-request log for the current range as

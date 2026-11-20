@@ -76,12 +76,6 @@ button[data-preset] { padding: 6px 10px; }
 
 .presets { display: flex; gap: 6px; }
 
-.reasons { padding: 12px 20px; border-bottom: 1px solid var(--border); background: rgba(255, 255, 255, 0.02); }
-.reasons h2 { font-size: 13px; margin: 0 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
-.reasons ul { list-style: none; margin: 0; padding: 0; max-width: 60ch; }
-.reasons li { display: flex; justify-content: space-between; gap: 16px; padding: 3px 0; font-variant-numeric: tabular-nums; }
-.reasons li .num { color: var(--muted); }
-
 main { padding: 16px 20px 40px; }
 
 /* The table has too many columns to fit a phone. Containing the overflow here
@@ -93,7 +87,28 @@ main { padding: 16px 20px 40px; }
 table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); }
 th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; }
-th[title] { cursor: help; }
+[data-tip] { cursor: help; }
+[data-tip]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+td[data-tip] { text-decoration: underline dotted var(--muted); text-underline-offset: 3px; }
+
+/* Descriptions and per-row error histograms. Shown on hover, focus and tap;
+   fixed positioning keeps the popup outside the table's overflow container. */
+.tooltip {
+  position: fixed;
+  z-index: 10;
+  max-width: min(280px, calc(100vw - 16px));
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+.tooltip[hidden] { display: none; }
 .num { text-align: right; }
 td.num, th.num { white-space: nowrap; }
 
