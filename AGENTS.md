@@ -48,8 +48,9 @@ Node 20+ is needed for tests, linting, and packaging.
   measurement lands on the same row as its request; the index is cleared on every
   flush so it cannot grow unbounded.
 - `src/icons/` holds the app and toolbar icons derived from the barbuz brand
-  mark (`barbuz.github.io/brand/mark.mjs`): app icons are the accent mark on the
-  night tile, toolbar icons are the bare mark so they read at 16 px.
+  mark (`barbuz.github.io/brand/mark.mjs`), reflected horizontally to read as a
+  lowercase `d` for data: app icons are the accent `d` on the night tile,
+  toolbar icons are the bare `d` so they read at 16 px.
 - `src/ui/dashboard.*` is the `options_ui` page (opened in a tab). `src/ui/popup.*`
   is the toolbar action. In the site view, a dashboard row expands (click) into
   its per-host breakdown via `hostBreakdown()` — the per-host `h` map is already

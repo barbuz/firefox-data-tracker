@@ -180,16 +180,17 @@ src/
     collector.js       request -> bucket folding + debounced flush
     requestlog.js      opt-in per-request log rows + CSV serialization
   icons/
-    icon-*.png         app icons (barbuz mark on the night tile)
-    action-*.png       toolbar icons (bare barbuz mark)
+    icon-*.png         app icons (data `d` on the night tile)
+    action-*.png       toolbar icons (bare data `d`)
   ui/
     dashboard.*        options page (filters, table, export, settings)
     popup.*            toolbar popup (today's total + top sites)
 test/                  unit tests for lib/
 ```
 
-The icons follow the barbuz brand: app icons are the `b` mark in accent blue on
-the night tile, and toolbar icons are the bare mark so they read at 16 px.
+The icons follow the barbuz brand: the barbuz mark is reflected to read as a
+lowercase `d` for data. App icons put the accent-blue `d` on the night tile;
+toolbar icons use the bare `d` so it reads at 16 px.
 
 ## Packaging
 
