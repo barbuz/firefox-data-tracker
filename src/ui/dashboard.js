@@ -331,20 +331,20 @@ function rowElement(row, { index, cols, expandable = false, expanded = false, ch
   if (cols.decoded) {
     tr.appendChild(cell(row.decoded ? formatBytes(row.decoded) : "—", "num"));
   }
-  tr.appendChild(cell(row.requests.toLocaleString(), "num"));
-  tr.appendChild(cell(row.unknown.toLocaleString(), "num"));
-  tr.appendChild(cell(row.cached.toLocaleString(), "num"));
   if (cols.cachedBytes) {
     tr.appendChild(cell(row.cachedBytes ? formatBytes(row.cachedBytes) : "—", "num"));
   }
+  tr.appendChild(cell(row.requests.toLocaleString(), "num"));
+  tr.appendChild(cell(row.cached.toLocaleString(), "num"));
+  if (cols.bodyless) {
+    tr.appendChild(cell(row.bodyless.toLocaleString(), "num"));
+  }
+  tr.appendChild(cell(row.unknown.toLocaleString(), "num"));
   if (cols.errored) {
     tr.appendChild(errorCell(row));
   }
   if (cols.unmeasured) {
     tr.appendChild(cell(row.unmeasured.toLocaleString(), "num"));
-  }
-  if (cols.bodyless) {
-    tr.appendChild(cell(row.bodyless.toLocaleString(), "num"));
   }
   if (expandable) {
     tr.classList.add("expandable");

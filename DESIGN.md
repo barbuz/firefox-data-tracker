@@ -288,11 +288,11 @@ dashboard reads aggregate data from `storage` directly.
   made up that site's total (from the same `h` map the day buckets already keep),
   so "which servers did this site actually pull from" is one click away.
 - Site filter (substring match + include/exclude the top N).
-- Sortable table: wire bytes, decoded bytes (precise mode only),
-  requests, unknown wire size count, empty-body count, cached count, cached
-  bytes, errored count, and unmeasured (precise-mode gap) count. The two
-  precise-mode columns appear only while precise mode is selected, so the table
-  does not show a decoded column with no measurements behind it.
+- Results table: wire bytes, decoded bytes (precise mode only), cached bytes,
+  requests, cached count, empty-body count, unknown wire size count, errored
+  count, and unmeasured (precise-mode gap) count. The two precise-mode columns
+  appear only while precise mode is selected, so the table does not show a
+  decoded column with no measurements behind it.
 - Each row's errored count is a hover/tap target that lists that row's
   error-reason histogram, so the errored count is explained rather than just
   shown.
