@@ -180,8 +180,8 @@ src/
     collector.js       request -> bucket folding + debounced flush
     requestlog.js      opt-in per-request log rows + CSV serialization
   icons/
-    icon-*.png         app icons (data `d` on the night tile)
-    action-*.png       toolbar icons (bare data `d`)
+    icon-*.png         app icons (data `dt` on the table-page grey tile)
+    action-*.png       toolbar icons (bare data `dt`)
   ui/
     dashboard.*        options page (filters, table, export, settings)
     popup.*            toolbar popup (today's total + top sites)
@@ -189,8 +189,11 @@ test/                  unit tests for lib/
 ```
 
 The icons follow the barbuz brand: the barbuz mark is reflected to read as a
-lowercase `d` for data. App icons put the accent-blue `d` on the night tile;
-toolbar icons use the bare `d` so it reads at 16 px.
+lowercase `d`, with a geometric `t` in the same stroke style beside it for
+"data tracker". App icons put the accent-blue `dt` on the dashboard
+table-page grey (`#1c1b22`); toolbar icons use the bare `dt` so it reads at
+16 px. The icon cut omits the node device so the two letters stay distinct at
+small sizes.
 
 ## Packaging
 

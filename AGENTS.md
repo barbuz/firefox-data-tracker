@@ -49,8 +49,10 @@ Node 20+ is needed for tests, linting, and packaging.
   flush so it cannot grow unbounded.
 - `src/icons/` holds the app and toolbar icons derived from the barbuz brand
   mark (`barbuz.github.io/brand/mark.mjs`), reflected horizontally to read as a
-  lowercase `d` for data: app icons are the accent `d` on the night tile,
-  toolbar icons are the bare `d` so they read at 16 px.
+  lowercase `d`, with a geometric `t` in the same stroke style beside it. App
+  icons put the accent-blue `dt` on the dashboard table-page grey (`#1c1b22`);
+  toolbar icons use the bare `dt` so they read at 16 px. The icon cut omits the
+  node device so the two letters stay distinct at small sizes.
 - `src/ui/dashboard.*` is the `options_ui` page (opened in a tab). `src/ui/popup.*`
   is the toolbar action. In the site view, a dashboard row expands (click) into
   its per-host breakdown via `hostBreakdown()` — the per-host `h` map is already
