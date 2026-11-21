@@ -8,7 +8,7 @@
   "type": "module",
   "description": "Firefox extension that logs per-site download usage locally.",
   "scripts": {
-    "test": "node --test \"test/*.test.js\"",
+    "test": "node --test",
     "lint": "npx --yes web-ext@10 lint --source-dir=src",
     "build": "npx --yes web-ext@10 build --source-dir=src --artifacts-dir=web-ext-artifacts --overwrite-dest"
   }
