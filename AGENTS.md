@@ -106,10 +106,12 @@ responses, `e`=failed requests (`webRequest.onErrorOccurred`; they may have move
 bytes we can never see), `x`=responses precise mode tried but failed to measure,
 `nb`=responses with a known-empty body (1xx/204/205/304, or a HEAD; a real zero,
 so excluded from `u`), `er`=failure reason -> count (from `details.error`, so "why
-did requests fail" is answerable without the per-request log). A cached response's
-bytes always go to `cb`, never `b` — there is no toggle — so the wire total is
-always network-only. A bodyless response's `Content-Length` (a 304's describes
-the cached copy) is dropped, never added to `b`. `details.statusCode` is read via
+did requests fail" is answerable without the per-request log). `r` is the umbrella
+count: every observed request is counted there, and `u`, `c`, `e` and `nb` are
+subsets of it. A cached response's bytes always go to `cb`, never `b` — there is
+no toggle — so the wire total is always network-only. A bodyless response's
+`Content-Length` (a 304's describes the cached copy) is dropped, never added to
+`b`. `details.statusCode` is read via
 `isBodylessStatus()` in `aggregate.js`; nothing else uses the status. Aggregation
 (not per-request rows) bounds growth by days × sites × hosts. Writes are
 debounced (3 s) in `Collector` and also flushed on `runtime.onSuspend` and a

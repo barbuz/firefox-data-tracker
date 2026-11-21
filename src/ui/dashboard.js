@@ -282,7 +282,7 @@ function render() {
   }
   const cov = coverage(totals);
   if (totals.unknown > 0 && cov < 1) {
-    summary += ` · ${Math.round(cov * 100)}% of responses have a known wire size`;
+    summary += ` · ${Math.round(cov * 100)}% of non-cached requests have a known wire size`;
   }
   totalsEl.appendChild(document.createTextNode(summary));
 

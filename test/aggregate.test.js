@@ -50,6 +50,22 @@ test("accumulate folds requests, bytes, unknown and cached", () => {
   assert.equal(s.h["example.com"].b, 0, "cached bytes never enter the network total");
 });
 
+test("requests is the umbrella count for every observed request", () => {
+  const day = {};
+  accumulate(day, { site: "example.com", host: "h", bytes: 10 });
+  accumulate(day, { site: "example.com", host: "h", bytes: null });
+  accumulate(day, { site: "example.com", host: "h", bytes: null, bodyless: true });
+  accumulate(day, { site: "example.com", host: "h", bytes: 5, fromCache: true });
+  accumulate(day, { site: "example.com", host: "h", bytes: null, errored: true });
+
+  const s = day["example.com"];
+  assert.equal(s.r, 5, "every observed request is counted once");
+  assert.equal(s.u, 1);
+  assert.equal(s.nb, 1);
+  assert.equal(s.c, 1);
+  assert.equal(s.e, 1);
+});
+
 test("accumulate ignores requests with no attributable site", () => {
   const day = {};
   accumulate(day, { site: "", host: "x", bytes: 10, fromCache: false });

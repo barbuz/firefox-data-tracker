@@ -86,6 +86,12 @@ dropped. Hovering or tapping an **Errors** count breaks that row's failures down
 by reason, so the cause (a timeout, an abort, a dropped connection) is visible,
 not just the count.
 
+**Requests** is the umbrella count: every request the extension saw is included,
+and **Unknown wire size**, **Empty body**, **Cached** and **Errors** are subsets
+of it. Only the wire total and the known-size percentage leave cached requests
+out, because they moved no network bytes; unknown-size and failed requests stay
+in that percentage as coverage gaps.
+
 ### Matching a system data counter (headers and uploads)
 
 If you are comparing against Android's per-app "mobile data usage", two caveats
