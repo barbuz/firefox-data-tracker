@@ -186,15 +186,15 @@ Data is aggregated, not stored per request. Each calendar day is one
 {
   "example.com": {                 // site (registrable domain)
     "b": 10485760,                 // wire bytes with known size (Content-Length)
-    "r": 412,                      // completed requests
-    "u": 7,                        // requests with unknown wire size (no Content-Length)
-    "c": 33,                       // requests served from disk cache (excluded from b)
+    "r": 412,                      // requests seen, including u, c, e and nb below
+    "u": 7,                        // subset of r: requests with unknown wire size
+    "c": 33,                       // subset of r: requests served from disk cache
     "cb": 262144,                  // bytes of the cached responses (never in b)
     "d": 0,                        // decoded bytes (precise mode only)
     "dm": 0,                       // responses that contributed a d measurement
-    "e": 2,                        // requests that failed (onErrorOccurred)
+    "e": 2,                        // subset of r: requests that failed
     "x": 0,                        // precise-mode measurements that failed
-    "nb": 0,                       // responses with a known-empty body (204/304/…)
+    "nb": 0,                       // subset of r: responses with a known-empty body
     "er": {                        // failure reasons -> count
       "NS_ERROR_NET_TIMEOUT": 2
     },
@@ -216,6 +216,15 @@ Why this shape:
   top-level key scheme.
 - **`er`** is a small histogram bounded by the number of distinct error codes, so
   "why did requests fail" is answerable without the opt-in per-request log.
+
+**Counts are nested, not disjoint.** `r` is the umbrella: every observed request
+is counted there, and `u`, `c`, `e` and `nb` are subsets of it. A cached response
+is in both `r` and `c`; a failed request is in both `r` and `e`. Empty-body
+responses are in `r` and `nb` and count as a *known* zero in coverage. The
+dashboard's Requests column shows `r`. The known-size percentage is
+`(r - u - c - e) / (r - c)`: cached hits are removed from both sides because they
+moved no network bytes, while unknown-size and failed requests stay in the
+denominator as coverage gaps.
 
 The optional per-request log lives in a *separate* key space, `log:YYYY-MM-DD`
 (an array of request rows), so the aggregate buckets stay small and a log row is
@@ -279,13 +288,14 @@ dashboard reads aggregate data from `storage` directly.
   made up that site's total (from the same `h` map the day buckets already keep),
   so "which servers did this site actually pull from" is one click away.
 - Site filter (substring match + include/exclude the top N).
-- Sortable table: wire bytes, decoded bytes (precise mode only),
-  requests, unknown wire size count, empty-body count, cached count, cached
-  bytes, errored count, and unmeasured (precise-mode gap) count. The two
-  precise-mode columns appear only while precise mode is selected, so the table
-  does not show a decoded column with no measurements behind it.
-- **Why requests failed** — a panel listing the error-reason histogram, so the
-  errored count is explained rather than just shown.
+- Results table: wire bytes, decoded bytes (precise mode only), cached bytes,
+  requests, cached count, empty-body count, unknown wire size count, errored
+  count, and unmeasured (precise-mode gap) count. The two precise-mode columns
+  appear only while precise mode is selected, so the table does not show a
+  decoded column with no measurements behind it.
+- Each row's errored count is a hover/tap target that lists that row's
+  error-reason histogram, so the errored count is explained rather than just
+  shown.
 - Totals, including the share of responses that have a known wire size, and a
   **CSV export** of the current filtered view.
 - **Download detailed log** — the opt-in per-request log for the current range as

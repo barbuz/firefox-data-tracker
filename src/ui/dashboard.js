@@ -50,6 +50,7 @@ async function init() {
   $("requestLog").checked = !!settings.requestLog;
 
   bindControls();
+  bindTips();
   await load();
 }
 
@@ -75,6 +76,96 @@ function bindControls() {
   $("preciseMode").addEventListener("change", togglePreciseMode);
   $("requestLog").addEventListener("change", (e) =>
     store.setSettings({ requestLog: e.target.checked }));
+}
+
+/**
+ * Column headers and per-row error counts carry a description in data-tip. A
+ * native title tooltip needs a hover, which touch screens do not have, so the
+ * text is shown in a popup on focus (keyboard) and tap (touch), and on hover for
+ * mice. Listeners are delegated from the document so the table cells created on
+ * every render need no rebinding. The popup lives on <body> with fixed
+ * positioning so the table's overflow container cannot clip it.
+ */
+function bindTips() {
+  const tip = document.createElement("div");
+  tip.className = "tooltip";
+  tip.id = "tip";
+  tip.setAttribute("role", "tooltip");
+  tip.hidden = true;
+  document.body.appendChild(tip);
+
+  let current = null;
+
+  const tipTarget = (node) =>
+    node instanceof Element ? node.closest("[data-tip]") : null;
+
+  function hide() {
+    if (!current) return;
+    current.removeAttribute("aria-describedby");
+    current = null;
+    tip.hidden = true;
+  }
+
+  function show(el) {
+    if (current !== el) hide();
+    current = el;
+    tip.textContent = el.dataset.tip;
+    el.setAttribute("aria-describedby", tip.id);
+    tip.hidden = false;
+
+    const margin = 8;
+    const rect = el.getBoundingClientRect();
+    const left = Math.min(
+      Math.max(margin, rect.left),
+      window.innerWidth - tip.offsetWidth - margin
+    );
+    tip.style.left = `${left}px`;
+    const below = rect.bottom + 6;
+    tip.style.top = below + tip.offsetHeight > window.innerHeight - margin
+      ? `${Math.max(margin, rect.top - tip.offsetHeight - 6)}px`
+      : `${below}px`;
+  }
+
+  document.addEventListener("click", (e) => {
+    const el = tipTarget(e.target);
+    if (el) show(el);
+    else hide();
+  });
+  document.addEventListener("focusin", (e) => {
+    const el = tipTarget(e.target);
+    if (el) show(el);
+  });
+  document.addEventListener("focusout", hide);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") hide();
+  });
+
+  if (window.matchMedia("(hover: hover)").matches) {
+    document.addEventListener("mouseover", (e) => {
+      const el = tipTarget(e.target);
+      if (el) show(el);
+    });
+    document.addEventListener("mouseout", (e) => {
+      if (!current) return;
+      const to = e.relatedTarget;
+      if (to instanceof Node && current.contains(to)) return;
+      hide();
+    });
+  }
+
+  document.addEventListener("scroll", () => {
+    if (!current) return;
+    // Focusing an element can scroll it into view, so reposition rather than
+    // dismiss; only hide once it has left the viewport.
+    const rect = current.getBoundingClientRect();
+    if (rect.bottom < 0 || rect.top > window.innerHeight) hide();
+    else show(current);
+  }, true);
+  window.addEventListener("resize", hide);
+
+  // Headers are static, so they only need to be made focusable here; table
+  // cells set their own tabIndex when they gain a tip.
+  for (const th of document.querySelectorAll("th[data-tip]")) th.tabIndex = 0;
 }
 
 /**
@@ -165,10 +256,10 @@ function render() {
   $("colCachedBytes").hidden = !showCachedBytes;
 
   // The key column is a site or a serving host depending on the mode, so its
-  // hover hint has to follow the header text.
+  // hint has to follow the header text.
   const bySite = state.groupBy === "site";
   $("colKey").textContent = bySite ? "Site" : "Serving host";
-  $("colKey").title = bySite
+  $("colKey").dataset.tip = bySite
     ? "The website you visited, including files it loaded from other servers. Click a row to see which servers served it"
     : "A server that sent data for the sites you visited";
 
@@ -191,13 +282,11 @@ function render() {
   }
   const cov = coverage(totals);
   if (totals.unknown > 0 && cov < 1) {
-    summary += ` · ${Math.round(cov * 100)}% of responses have a known wire size`;
+    summary += ` · ${Math.round(cov * 100)}% of non-cached requests have a known wire size`;
   }
   totalsEl.appendChild(document.createTextNode(summary));
 
   $("empty").hidden = state.rows.length > 0;
-
-  renderReasons(state.all);
 
   const cols = {
     decoded: showPrecise,
@@ -242,25 +331,27 @@ function rowElement(row, { index, cols, expandable = false, expanded = false, ch
   if (cols.decoded) {
     tr.appendChild(cell(row.decoded ? formatBytes(row.decoded) : "—", "num"));
   }
-  tr.appendChild(cell(row.requests.toLocaleString(), "num"));
-  tr.appendChild(cell(row.unknown.toLocaleString(), "num"));
-  tr.appendChild(cell(row.cached.toLocaleString(), "num"));
   if (cols.cachedBytes) {
     tr.appendChild(cell(row.cachedBytes ? formatBytes(row.cachedBytes) : "—", "num"));
   }
+  tr.appendChild(cell(row.requests.toLocaleString(), "num"));
+  tr.appendChild(cell(row.cached.toLocaleString(), "num"));
+  if (cols.bodyless) {
+    tr.appendChild(cell(row.bodyless.toLocaleString(), "num"));
+  }
+  tr.appendChild(cell(row.unknown.toLocaleString(), "num"));
   if (cols.errored) {
-    tr.appendChild(cell(row.errored.toLocaleString(), "num"));
+    tr.appendChild(errorCell(row));
   }
   if (cols.unmeasured) {
     tr.appendChild(cell(row.unmeasured.toLocaleString(), "num"));
   }
-  if (cols.bodyless) {
-    tr.appendChild(cell(row.bodyless.toLocaleString(), "num"));
-  }
   if (expandable) {
     tr.classList.add("expandable");
-    tr.addEventListener("click", () => {
+    tr.addEventListener("click", (e) => {
       if (window.getSelection().toString()) return;
+      // The error count is its own hover/tap target; do not also expand the row.
+      if (e.target instanceof Element && e.target.closest("[data-tip]")) return;
       toggleSite(row.key);
     });
   }
@@ -331,27 +422,22 @@ function exportCsv() {
 }
 
 /**
- * Render the error-reason breakdown. This is the answer to "what are the main
- * reasons for errors": the Errors column says how many failed, this says why.
- * Hidden entirely when nothing failed, so it adds no noise on a clean day.
+ * The Errors cell. Its count is the tap/hover target for that row's failure
+ * histogram: `reasons` is aggregated per site and per host at collection time,
+ * so explaining a row needs no per-request log.
  */
-function renderReasons(rows) {
-  const reasons = errorReasons(rows);
-  const section = $("reasons");
-  section.hidden = reasons.length === 0;
-  const list = $("reasonsList");
-  list.textContent = "";
+function errorCell(row) {
+  const td = cell(row.errored.toLocaleString(), "num");
+  if (row.errored === 0) return td;
+  const reasons = errorReasons([row]);
   const total = reasons.reduce((n, r) => n + r.count, 0);
-  for (const { reason, count } of reasons) {
-    const li = document.createElement("li");
-    const label = document.createElement("span");
-    label.textContent = reason;
-    const value = document.createElement("span");
-    value.className = "num";
-    value.textContent = `${count.toLocaleString()} (${Math.round((count / total) * 100)}%)`;
-    li.append(label, value);
-    list.appendChild(li);
-  }
+  const lines = reasons.length
+    ? reasons.map(({ reason, count }) =>
+      `${reason}: ${count.toLocaleString()} (${Math.round((count / total) * 100)}%)`)
+    : ["No reason recorded (older data)"];
+  td.dataset.tip = ["Failed requests by reason", ...lines].join("\n");
+  td.tabIndex = 0;
+  return td;
 }
 
 /**

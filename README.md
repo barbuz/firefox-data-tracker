@@ -58,9 +58,9 @@ set to `false` in `about:config`.
   - **Site filter** — substring match.
   - **Top N** — limit the table without changing the totals.
   - **Export CSV** — exports all rows matching the current filters.
-  - **Why requests failed** — a panel that breaks the errored count down by error
-    reason (e.g. `NS_ERROR_NET_TIMEOUT`, `NS_ERROR_ABORT`), shown when anything
-    failed.
+  - **Why requests failed** — hover or tap an errored count in the table to see
+    that row's breakdown by error reason (e.g. `NS_ERROR_NET_TIMEOUT`,
+    `NS_ERROR_ABORT`).
   - **Detailed request log** — opt-in; records one line per request and per error
     and adds a **Download detailed log** button (CSV). Off by default.
   - **Settings** — retention window (days, 0 = keep forever), precise mode,
@@ -82,9 +82,15 @@ goes in a **Cached** column and their size in a separate **Cached bytes** column
 never in the wire total. Requests that fail or are cancelled mid-flight are
 counted in an **Errors** column: they never reach `onCompleted`, so their
 transferred bytes cannot be attributed, and they are shown rather than silently
-dropped. The **Why requests failed** panel breaks those errors down by reason, so
-the cause (a timeout, an abort, a dropped connection) is visible, not just the
-count.
+dropped. Hovering or tapping an **Errors** count breaks that row's failures down
+by reason, so the cause (a timeout, an abort, a dropped connection) is visible,
+not just the count.
+
+**Requests** is the umbrella count: every request the extension saw is included,
+and **Unknown wire size**, **Empty body**, **Cached** and **Errors** are subsets
+of it. Only the wire total and the known-size percentage leave cached requests
+out, because they moved no network bytes; unknown-size and failed requests stay
+in that percentage as coverage gaps.
 
 ### Matching a system data counter (headers and uploads)
 

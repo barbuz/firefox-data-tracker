@@ -38,27 +38,22 @@
     <button id="clear">Clear all data</button>
   </section>
 
-  <section class="reasons" id="reasons" aria-label="Error reasons" hidden>
-    <h2>Why requests failed</h2>
-    <ul id="reasonsList"></ul>
-  </section>
-
   <main>
     <div class="table-wrap">
       <table id="results">
         <thead>
           <tr>
-            <th class="num" title="Row number in the current sort order">#</th>
-            <th id="colKey" title="The website you visited, including files it loaded from other servers. Click a row to see which servers served it">Site</th>
-            <th class="num" title="Bytes the server sent over the network, still compressed">Wire</th>
-            <th class="num" id="colDecoded" hidden title="Bytes after the browser decompresses them, measured only in precise mode. Larger than wire bytes because compressed files expand">Decoded</th>
-            <th class="num" title="Responses the extension saw, whether they finished, failed, were cached or had no body">Requests</th>
-            <th class="num" title="Responses that gave no size in their headers, such as streamed ones. Their bytes are missing from wire">Unknown wire size</th>
-            <th class="num" title="Responses the browser served from its own cache. They used no network data, so they are not in wire">Cached</th>
-            <th class="num" id="colCachedBytes" hidden title="How big the cached responses were. Shown for reference, not added to wire">Cached bytes</th>
-            <th class="num" id="colErrored" hidden title="Requests that failed or were cancelled. They may have used data we cannot see, so they are not in wire">Errors</th>
-            <th class="num" id="colUnmeasured" hidden title="Responses precise mode tried to measure but could not. Only appears in precise mode">Unmeasured</th>
-            <th class="num" id="colBodyless" hidden title="Responses with no body, such as a 204 or 304. A real zero, not missing data">Empty body</th>
+            <th class="num" data-tip="Row number in the current sort order">#</th>
+            <th id="colKey" data-tip="The website you visited, including files it loaded from other servers. Click a row to see which servers served it">Site</th>
+            <th class="num" data-tip="Bytes the server sent over the network, still compressed">Wire</th>
+            <th class="num" id="colDecoded" hidden data-tip="Bytes after the browser decompresses them, measured only in precise mode. Larger than wire bytes because compressed files expand">Decoded</th>
+            <th class="num" id="colCachedBytes" hidden data-tip="How big the cached responses were. Shown for reference, not added to wire">Cached bytes</th>
+            <th class="num" data-tip="Every request the extension saw: sized, unknown-size, cached, empty-body and failed. All of them are counted here">Requests</th>
+            <th class="num" data-tip="Included in Requests. Responses the browser served from its own cache. They used no network data, so they are not in wire or in the known-size percentage">Cached</th>
+            <th class="num" id="colBodyless" hidden data-tip="Included in Requests. Responses with no body, such as a 204 or 304. A real zero, not missing data">Empty body</th>
+            <th class="num" data-tip="Included in Requests. Responses that gave no size in their headers, such as streamed ones. Their bytes are missing from wire">Unknown wire size</th>
+            <th class="num" id="colErrored" hidden data-tip="Included in Requests. Requests that failed or were cancelled. They may have used data we cannot see, so they are not in wire">Errors</th>
+            <th class="num" id="colUnmeasured" hidden data-tip="Included in Requests. Responses precise mode tried to measure but could not. Only appears in precise mode">Unmeasured</th>
           </tr>
         </thead>
         <tbody></tbody>
