@@ -1,8 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Data Usage Tracker",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Locally logs how much data each site downloads, with a filterable dashboard.",
+  "icons": {
+    "48": "icons/icon-48.png",
+    "96": "icons/icon-96.png",
+    "128": "icons/icon-128.png"
+  },
   "browser_specific_settings": {
     "gecko": {
       "id": "data-usage-tracker@example.local",
@@ -38,6 +43,11 @@
   },
   "action": {
     "default_title": "Data Usage Tracker",
-    "default_popup": "ui/popup.html"
+    "default_popup": "ui/popup.html",
+    "default_icon": {
+      "16": "icons/action-16.png",
+      "32": "icons/action-32.png",
+      "48": "icons/action-48.png"
+    }
   }
 }

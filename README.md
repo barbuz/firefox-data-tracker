@@ -1,11 +1,13 @@
 # Data Usage Tracker (Firefox extension)
 
+[![Test](https://github.com/barbuz/firefox-data-tracker/actions/workflows/test.yml/badge.svg)](https://github.com/barbuz/firefox-data-tracker/actions/workflows/test.yml)
+
 Logs how much data each site downloads, entirely on your machine, and gives you
 a dashboard to review it filtered by date range and site.
 
-- **Lightweight** — no build step, no network calls, no background services. The
-  collector uses an informational `webRequest` listener that never slows page
-  loads, and writes to disk are debounced.
+- **Lightweight** — no runtime build step, no network calls, no persistent
+  background service. The collector uses an informational `webRequest` listener
+  that never slows page loads, and writes to disk are debounced.
 - **Local-only** — data lives in the extension's own `storage.local`; nothing is
   uploaded anywhere.
 - **Reviewable** — filter by date and site, group by site or serving host, and
@@ -151,13 +153,14 @@ dashboard to export the current range as CSV.
 
 ## Development
 
-Requires Node.js 18+ for the tests only; the extension itself has no runtime
-dependencies.
+Requires Node.js 20+ for tests, linting, and packaging; the extension itself has
+no runtime dependencies.
 
 ```sh
-npm test                 # run unit tests (Node's built-in test runner)
-npx web-ext lint --source-dir=src   # validate the extension
-npx web-ext run --source-dir=src    # launch Firefox with the extension (if installed)
+npm test        # run unit tests (Node's built-in test runner)
+npm run lint    # validate manifest + APIs (fetches web-ext via npx)
+npm run build   # write web-ext-artifacts/data_usage_tracker-<version>.zip
+npx --yes web-ext@10 run --source-dir=src   # launch Firefox with the extension
 ```
 
 The browser-facing code is thin by design: all accounting and storage logic lives
@@ -176,11 +179,17 @@ src/
     store.js           storage.local wrapper: day buckets, log, settings, pruning
     collector.js       request -> bucket folding + debounced flush
     requestlog.js      opt-in per-request log rows + CSV serialization
+  icons/
+    icon-*.png         app icons (barbuz mark on the night tile)
+    action-*.png       toolbar icons (bare barbuz mark)
   ui/
     dashboard.*        options page (filters, table, export, settings)
     popup.*            toolbar popup (today's total + top sites)
 test/                  unit tests for lib/
 ```
+
+The icons follow the barbuz brand: app icons are the `b` mark in accent blue on
+the night tile, and toolbar icons are the bare mark so they read at 16 px.
 
 ## Packaging
 
@@ -202,15 +211,15 @@ cd src && zip -r ../data-usage-tracker.xpi . -x '.*'
 
 ## Installing on Firefox for Android
 
-The extension targets desktop Firefox, but the APIs it uses (`webRequest`
-`onCompleted` with `responseHeaders`, `background.scripts`, `options_ui`,
-`storage`) are all supported on Firefox for Android, so it runs there too.
+The extension runs on desktop Firefox and Firefox for Android. The APIs it uses
+(`webRequest` `onCompleted` with `responseHeaders`, `background.scripts`,
+`options_ui`, `storage`) are all supported on Firefox for Android.
 
 Two ways to install:
 
 - **Temporary (any channel, including release), over USB.** Enable USB
   debugging on the phone and run
-  `web-ext run -t firefox-android --adb-device <id> --firefox-apk org.mozilla.firefox`.
+  `npx --yes web-ext@10 run -t firefox-android --adb-device <id> --firefox-apk org.mozilla.firefox`.
   The add-on unloads when Firefox closes.
 - **Permanent (requires a signed `.xpi`).** Release Firefox for Android only
   installs signed add-ons. Sign the `.xpi` on addons.mozilla.org (the *unlisted*

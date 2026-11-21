@@ -1,12 +1,15 @@
 {
   "name": "data-usage-tracker",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "private": true,
+  "engines": {
+    "node": ">=20"
+  },
   "type": "module",
   "description": "Firefox extension that logs per-site download usage locally.",
   "scripts": {
     "test": "node --test \"test/*.test.js\"",
-    "lint": "web-ext lint --source-dir=src",
-    "build": "web-ext build --source-dir=src --artifacts-dir=web-ext-artifacts --overwrite-dest"
+    "lint": "npx --yes web-ext@10 lint --source-dir=src",
+    "build": "npx --yes web-ext@10 build --source-dir=src --artifacts-dir=web-ext-artifacts --overwrite-dest"
   }
 }

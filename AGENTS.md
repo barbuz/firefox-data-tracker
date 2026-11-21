@@ -6,18 +6,19 @@ Repository memory for the Data Usage Tracker Firefox extension. See
 ## What this is
 
 A Firefox MV3 extension that logs per-site download sizes locally and shows a
-filterable dashboard. No build step, no runtime dependencies.
+filterable dashboard. No runtime build step and no runtime dependencies.
 
 ## Commands
 
 ```sh
 npm test                              # unit tests (Node built-in runner)
-npx web-ext lint --source-dir=src     # validate manifest + APIs (0 errors expected)
-npx web-ext run --source-dir=src      # load in Firefox (requires Firefox installed)
-cd src && zip -r ../data-usage-tracker.zip . -x '.*'   # package
+npm run lint                          # validate manifest + APIs (0 errors expected)
+npm run build                         # write web-ext-artifacts/*.zip
+npx --yes web-ext@10 run --source-dir=src   # load in Firefox (requires Firefox installed)
+cd src && zip -r ../data-usage-tracker.zip . -x '.*'   # package by hand
 ```
 
-Node 18+ is needed for tests only.
+Node 20+ is needed for tests, linting, and packaging.
 
 ## Architecture
 
@@ -46,6 +47,9 @@ Node 18+ is needed for tests only.
   to CSV. `Collector` keeps a `requestId -> row` index so a precise-mode
   measurement lands on the same row as its request; the index is cleared on every
   flush so it cannot grow unbounded.
+- `src/icons/` holds the app and toolbar icons derived from the barbuz brand
+  mark (`barbuz.github.io/brand/mark.mjs`): app icons are the accent mark on the
+  night tile, toolbar icons are the bare mark so they read at 16 px.
 - `src/ui/dashboard.*` is the `options_ui` page (opened in a tab). `src/ui/popup.*`
   is the toolbar action. In the site view, a dashboard row expands (click) into
   its per-host breakdown via `hostBreakdown()` — the per-host `h` map is already
@@ -144,5 +148,6 @@ When changing the storage shape, update `mergeDay`/`accumulate` in
   and tap in a fixed-position popup on `<body>` (a popup inside `.table-wrap`
   would be clipped by its overflow).
 - `manifest.json` must include `browser_specific_settings.gecko.data_collection_permissions`
-  (`{ "required": ["none"] }`) — required for new AMO submissions.
+  (`{ "required": ["none"] }`) — required for new AMO submissions — and the
+  `icons` / `action.default_icon` entries under `src/icons/`.
 - Unit tests live in `test/*.test.js` and import directly from `src/lib/`.
