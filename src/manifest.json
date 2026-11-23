@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Data Tracker",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "Locally logs how much data each site downloads, with a filterable dashboard.",
   "icons": {
     "48": "icons/icon-48.png",
