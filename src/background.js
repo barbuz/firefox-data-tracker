@@ -43,7 +43,7 @@ registerAlarm();
 
 // Load persisted settings and reconcile precise mode. Safe to do after the
 // listeners are live: the collector treats a missing setting as its default.
-bootstrap().catch((err) => console.error("Data Usage Tracker failed to start", err));
+bootstrap().catch((err) => console.error("Data Tracker failed to start", err));
 
 async function bootstrap() {
   await collector.init();

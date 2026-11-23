@@ -1,4 +1,4 @@
-# Data Usage Tracker — Design
+# Data Tracker — Design
 
 A Firefox extension that records how much data each site downloads, stores the
 log locally, and lets you review it filtered by date and by site.
