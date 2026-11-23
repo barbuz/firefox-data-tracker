@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Data Usage Tracker",
+  "name": "Data Tracker",
   "version": "1.5.0",
   "description": "Locally logs how much data each site downloads, with a filterable dashboard.",
   "icons": {
@@ -42,7 +42,7 @@
     "open_in_tab": true
   },
   "action": {
-    "default_title": "Data Usage Tracker",
+    "default_title": "Data Tracker",
     "default_popup": "ui/popup.html",
     "default_icon": {
       "16": "icons/action-16.png",

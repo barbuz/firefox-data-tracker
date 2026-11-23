@@ -1,4 +1,4 @@
-# Data Usage Tracker (Firefox extension)
+# Data Tracker (Firefox extension)
 
 [![Test](https://github.com/barbuz/firefox-data-tracker/actions/workflows/test.yml/badge.svg)](https://github.com/barbuz/firefox-data-tracker/actions/workflows/test.yml)
 
@@ -159,7 +159,7 @@ no runtime dependencies.
 ```sh
 npm test        # run unit tests (Node's built-in test runner)
 npm run lint    # validate manifest + APIs (fetches web-ext via npx)
-npm run build   # write web-ext-artifacts/data_usage_tracker-<version>.zip
+npm run build   # write web-ext-artifacts/data_tracker-<version>.zip
 npx --yes web-ext@10 run --source-dir=src   # launch Firefox with the extension
 ```
 
@@ -201,7 +201,7 @@ An `.xpi` is just a zip of `src/` with `manifest.json` at the top level. Build
 one with:
 
 ```sh
-npm run build      # writes web-ext-artifacts/data_usage_tracker-<version>.zip
+npm run build      # writes web-ext-artifacts/data_tracker-<version>.zip
 ```
 
 `web-ext build` names the artifact `.zip`; rename it to `.xpi` for installation
@@ -210,7 +210,7 @@ add-on, or on Developer Edition / Nightly with signature checks disabled. Sign
 it through addons.mozilla.org for a permanent install. Or zip it by hand:
 
 ```sh
-cd src && zip -r ../data-usage-tracker.xpi . -x '.*'
+cd src && zip -r ../data-tracker.xpi . -x '.*'
 ```
 
 ## Installing on Firefox for Android

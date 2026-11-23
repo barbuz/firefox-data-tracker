@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Repository memory for the Data Usage Tracker Firefox extension. See
+Repository memory for the Data Tracker Firefox extension. See
 [DESIGN.md](DESIGN.md) for the full design rationale.
 
 ## What this is
@@ -15,7 +15,7 @@ npm test                              # unit tests (Node built-in runner)
 npm run lint                          # validate manifest + APIs (0 errors expected)
 npm run build                         # write web-ext-artifacts/*.zip
 npx --yes web-ext@10 run --source-dir=src   # load in Firefox (requires Firefox installed)
-cd src && zip -r ../data-usage-tracker.zip . -x '.*'   # package by hand
+cd src && zip -r ../data-tracker.zip . -x '.*'   # package by hand
 ```
 
 Node 20+ is needed for tests, linting, and packaging.
@@ -153,4 +153,6 @@ When changing the storage shape, update `mergeDay`/`accumulate` in
 - `manifest.json` must include `browser_specific_settings.gecko.data_collection_permissions`
   (`{ "required": ["none"] }`) — required for new AMO submissions — and the
   `icons` / `action.default_icon` entries under `src/icons/`.
+- The AMO add-on ID is `data-usage-tracker@example.local`. It is permanent and
+  must not change when the display name or package name changes.
 - Unit tests live in `test/*.test.js` and import directly from `src/lib/`.
