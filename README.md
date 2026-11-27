@@ -1,8 +1,7 @@
 # Data Tracker (Firefox extension)
 
 [![Test](https://github.com/barbuz/firefox-data-tracker/actions/workflows/test.yml/badge.svg)](https://github.com/barbuz/firefox-data-tracker/actions/workflows/test.yml)
-
-**[Install from Mozilla Add-ons][amo]**
+[![Install on Firefox](https://img.shields.io/amo/v/data-tracker?label=install%20on%20Firefox&logo=firefoxbrowser&logoColor=white)](https://addons.mozilla.org/en-US/firefox/addon/data-tracker/)
 
 Logs how much data each site downloads, entirely on your machine, and gives you
 a dashboard to review it filtered by date range and site.
