@@ -2,6 +2,8 @@
 
 [![Test](https://github.com/barbuz/firefox-data-tracker/actions/workflows/test.yml/badge.svg)](https://github.com/barbuz/firefox-data-tracker/actions/workflows/test.yml)
 
+**[Install from Mozilla Add-ons][amo]**
+
 Logs how much data each site downloads, entirely on your machine, and gives you
 a dashboard to review it filtered by date range and site.
 
@@ -36,17 +38,20 @@ dashboard from the toolbar popup (or `about:addons` → the extension → Option
 
 ## Install (permanent)
 
-Firefox release channels only install **signed** add-ons. The `.xpi` attached to
-GitHub releases is **unsigned**, so it cannot be installed permanently. To
-install permanently, sign the `.xpi` through addons.mozilla.org's unlisted
-channel and install the signed copy. A link to the AMO listing will be added
-here once it is published.
+**[Install Data Tracker from Mozilla Add-ons][amo]** — this is the listed, signed
+build, and the easiest permanent install on both desktop Firefox and Firefox for
+Android. The extension updates itself from AMO when a new version is reviewed.
 
-- **Firefox for Android (release/beta):** after signing, **Settings → About
-  Firefox → tap the Firefox logo five times → Settings → Install Extension from
-  File**, and pick the signed `.xpi`.
-- **Desktop Firefox (release):** after signing, open `about:addons` → the gear
-  icon → **Install Add-on from File…** and pick the signed `.xpi`.
+The `.xpi` attached to GitHub releases is **unsigned**, so it cannot be installed
+permanently; it is only useful for temporary installs (see above). If you build
+your own `.xpi` (see [Packaging](#packaging)) and want to keep it, sign it through
+addons.mozilla.org's unlisted channel and install the signed copy.
+
+- **Firefox for Android (release/beta), installing a signed file:** **Settings →
+  About Firefox → tap the Firefox logo five times → Settings → Install Extension
+  from File**, and pick the signed `.xpi`.
+- **Desktop Firefox (release), installing a signed file:** open `about:addons` →
+  the gear icon → **Install Add-on from File…** and pick the signed `.xpi`.
 
 An unsigned `.xpi` — whether downloaded from the releases page or built locally
 (see [Packaging](#packaging)) — loads only as a temporary add-on, or in Firefox
@@ -54,6 +59,7 @@ Developer Edition / Nightly with `xpinstall.signatures.required` set to `false`
 in `about:config`.
 
 [releases]: https://github.com/barbuz/firefox-data-tracker/releases/latest
+[amo]: https://addons.mozilla.org/en-US/firefox/addon/data-tracker/
 
 ## Use
 
@@ -206,8 +212,10 @@ npm run build      # writes web-ext-artifacts/data_tracker-<version>.zip
 
 `web-ext build` names the artifact `.zip`; rename it to `.xpi` for installation
 (the format is identical). This build is unsigned: it loads as a temporary
-add-on, or on Developer Edition / Nightly with signature checks disabled. Sign
-it through addons.mozilla.org for a permanent install. Or zip it by hand:
+add-on, or on Developer Edition / Nightly with signature checks disabled. The
+published, signed release lives on [Mozilla Add-ons][amo]; a self-built `.xpi`
+needs signing there (the unlisted channel) before release Firefox will install it
+permanently. Or zip it by hand:
 
 ```sh
 cd src && zip -r ../data-tracker.xpi . -x '.*'
@@ -221,16 +229,17 @@ The extension runs on desktop Firefox and Firefox for Android. The APIs it uses
 
 Two ways to install:
 
+- **From Mozilla Add-ons.** Open the [listing][amo] in Firefox for Android and
+  tap **Add to Firefox**. This is the signed, self-updating build.
 - **Temporary (any channel, including release), over USB.** Enable USB
   debugging on the phone and run
   `npx --yes web-ext@10 run -t firefox-android --adb-device <id> --firefox-apk org.mozilla.firefox`.
   The add-on unloads when Firefox closes.
-- **Permanent (requires a signed `.xpi`).** Release Firefox for Android only
-  installs signed add-ons. Sign the `.xpi` on addons.mozilla.org (the *unlisted*
-  channel is free and signed automatically), then on the phone: **Settings →
-  About Firefox → tap the Firefox logo five times → Settings → Install Extension
-  from File** and pick the downloaded `.xpi`. The dashboard is available under
-  the extension's entry in the Android add-ons list.
+
+To sideload a signed `.xpi` you built or signed yourself, use **Settings →
+About Firefox → tap the Firefox logo five times → Settings → Install Extension
+from File** and pick the downloaded `.xpi`. The dashboard is available under the
+extension's entry in the Android add-ons list.
 
 ## License
 

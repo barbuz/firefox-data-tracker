@@ -8,6 +8,11 @@ Repository memory for the Data Tracker Firefox extension. See
 A Firefox MV3 extension that logs per-site download sizes locally and shows a
 filterable dashboard. No runtime build step and no runtime dependencies.
 
+The listed, signed build is published at
+<https://addons.mozilla.org/en-US/firefox/addon/data-tracker/>; the README points
+there for permanent installs, and the GitHub release `.xpi` stays unsigned
+(temporary installs only).
+
 ## Commands
 
 ```sh
